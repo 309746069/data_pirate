@@ -3,8 +3,7 @@
 #include <pcap.h>
 #include <libnet.h>
 
-#include "robber.h"
-#include "hunter.h"
+#include "data_pirate.h"
 #include "sender.h"
 
 #define INTERFACE   "en0"
@@ -36,6 +35,23 @@ initialize(const int argc, const char* argv[])
 
     _SET_LOG_OUT_FUN(printf);
     _SET_SEND_PACKAGE_FUN(sender_send);
+
+    if(false == net_state_init( INTERFACE,
+                                "\xd4\x33\xa3\x11\x11\x11",
+                                _iptonetint32("192.168.1.109"),
+                                _iptonetint32("255.255.255.0"),
+                                _iptonetint32("192.168.1.1")) )
+    {
+        return false;
+    }
+
+#if 1
+    _MESSAGE_OUT("card_name:\t%s\n", net_info->net_interface);
+    _MESSAGE_OUT("ip:\t\t%s\n", _netint32toip(net_info->ip_netint32));
+    _MESSAGE_OUT("mask:\t\t%s\n", _netint32toip(net_info->ip_mask));
+    _MESSAGE_OUT("route:\t\t%s\n", _netint32toip(net_info->ip_route_netint32));
+    _MESSAGE_OUT("max devices:\t%u\n", net_info->d_arr_max);
+#endif
 
     signal(SIGINT, signal_handler);     // ctrl+c handler
 
