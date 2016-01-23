@@ -32,8 +32,21 @@ thread_sender(void* arg)
         if(false == _SEND_PACKAGE(pi->packet, pi->size))
             _MESSAGE_OUT("wtf???\n");
     }
+
+    else if(_ntoh16(_ETH_P_IP) == eth->h_proto)
+    {
+        ip  = pi->packet + sizeof(struct _ethhdr);
+        if(_iptonetint32("192.168.1.104") == ip->daddr && 0 != strncmp(eth->h_source, "\xd4\x33\xa3\x11\x11\x11", 6))
+        {
+            _MESSAGE_OUT("=====there it is \n");
+            memcpy(eth->h_dest, "\x24\x24\x0e\x41\x58\xc7", 6);
+            if(false == _SEND_PACKAGE(pi->packet, pi->size))
+                _MESSAGE_OUT("wtf???\n");
+        }
+    }
+
+
     // free(pi->packet);
-    free(pi);
 }
 
 
@@ -44,46 +57,17 @@ packet_dispatch(    u_char                      *userarg,   // callback args
                     const u_char                *packet)    // packet buf
 {
     static unsigned int i           = 0;
-    // unsigned char       p[65535]    = {0};
+    unsigned char       p[65535]    = {0};
     pthread_t           t           = 0;
     int                 err         = 0;
     struct _ethhdr      *eth        = 0;
     struct _iphdr       *ip         = 0;
+    struct package_info pi          = {.packet = p, .size = pkthdr->len};
 
-    // _MESSAGE_OUT("[%05u] -> size : %d\n", i++, pkthdr->len);
+    _MESSAGE_OUT("[%05u] -> size : %d\n", i++, pkthdr->len);
+    memcpy(p, packet, pi.size);
 
-    struct package_info *p  = malloc(sizeof(struct package_info));
-    p->packet   = packet;
-    p->size     = pkthdr->len;
-
-
-    err = pthread_create(&t, 0, thread_sender, p);
-    if(err)
-    {
-        _MESSAGE_OUT("pthread_create failed : %s\n", strerror(err));
-    }
-    return;
-
-    if( _ntoh16(_ETH_P_IP) != eth->h_proto) return;
-
-    ip  = packet + sizeof(struct _ethhdr);
-
-    _MESSAGE_OUT("%s", _netint32toip(ip->saddr));
-    _MESSAGE_OUT("\t-> %s\r\n", _netint32toip(ip->daddr));
-    
-    printf("%08x  %08x\n", _iptonetint32("192.168.1.104"), ip->saddr );
-
-    if( _iptonetint32("192.168.1.104") == ip->saddr)
-    {
-        _MESSAGE_OUT("there it is\n");
-        memcpy(p, packet, pkthdr->len);
-        eth = (struct _ethhdr*)p;
-        memcpy(eth->h_dest, "\xd8\x15\x0d\x8c\x04\xfe", 6);
-
-        if(false == _SEND_PACKAGE(p, pkthdr->len))
-            _MESSAGE_OUT("wtf???\n");
-
-    }
+    thread_sender((void*)&pi);return;
 }
 
 

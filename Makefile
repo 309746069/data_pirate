@@ -1,5 +1,5 @@
 CC=gcc
-OBJECT=main.o robber.o common.o hunter.o sender.o cheater.o
+OBJECT=main.o robber.o common.o hunter.o sender.o cheater.o queue.o
 TARGET=data_pirate
 LIB= -lpcap -lnet -lpthread
 LOG=log.txt

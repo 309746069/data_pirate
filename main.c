@@ -65,6 +65,25 @@ initialize(const int argc, const char* argv[])
 }
 
 
+void*
+thread_reader(void* q)
+{
+    char    err[10000];
+    for(;;)
+    {
+        sleep(1);
+        if(queue_read_message(q, err))
+        {
+            printf("%s\n", err);
+        }
+        else
+            printf("empty\n");
+    }
+
+}
+
+
+
 
 
 int
@@ -73,6 +92,35 @@ main(const int argc, const char* argv[])
     int         err     = 0;
     pthread_t   hunter  = 0;
     char*       perr    = 0;
+
+
+    pthread_t   pt      = 0;
+    void*       q       = queue_init(10000, 0);
+
+    if(!q)
+        printf("err\n");
+
+    pthread_create(&pt, 0, thread_reader, q);
+
+    int j   = 0;
+    for(j = 0; j<99; j++)
+    {
+        sleep(2);
+        char str[100]   = {0};
+        sprintf(str, "hello , %d", j);
+        queue_write_message(q, str, strlen(str), 0);
+        // if(queue_read_message(q, &err))
+        // {
+        //     printf("%d\n", err);
+        // }
+    }
+
+    printf("write end\n");
+    while(1) sleep(1);
+
+    exit(0);
+
+
 
 
 
@@ -88,9 +136,14 @@ main(const int argc, const char* argv[])
         return -1;
     }
 
-
+    // pthread_t n;
+    // err = pthread_create(&n, 0, cheater_test, 0);
+    // if(err)
+    // {
+    //     _MESSAGE_OUT("[!] create err : %s", strerror(err));
+    // }
     cheater_test();
-
+    // sleep(1); exit(0);
     while(1) sleep(1);
 
 
