@@ -61,7 +61,6 @@ struct message_queue
 #define _READ_OFFSET(__queue_)       (__queue_->ridx.offset)
 
     unsigned int        node_buf_size;
-    // todo: use this err buf
     unsigned char       err[1024];
 };
 
@@ -168,8 +167,7 @@ failed_return:
 int
 queue_write_message(const void          *queue,
                     const unsigned char *msg,
-                    const unsigned int  msg_len,
-                    unsigned char       *return_err)
+                    const unsigned int  msg_len)
 {
     struct message_queue    *q          = (struct message_queue*)queue;
     struct _message_hdr     *msghdr     = _GET_WRITE_MSG_HDR(q);
@@ -177,11 +175,8 @@ queue_write_message(const void          *queue,
 
     if(0 == q)
     {
-        if(return_err)
-        {
-            char    *retstring  = "message_queue is empty!\n";
-            memcpy(return_err, retstring, strlen(retstring));
-        }
+        char    *retstring  = "message_queue is empty!\n";
+        memcpy(q->err, retstring, strlen(retstring));
         return false;
     }
 
@@ -191,10 +186,7 @@ queue_write_message(const void          *queue,
         _WRITE_NODE(q)->next    = node_malloc(q);
         if(0 == _WRITE_NODE(q)->next)
         {
-            if(return_err)
-            {
-                memcpy(return_err, strerror(errno), strlen(strerror(errno)));
-            }
+            memcpy(q->err, strerror(errno), strlen(strerror(errno)));
             return false;
         }
 
@@ -280,6 +272,13 @@ queue_read_message( void            *queue,
     _READ_OFFSET(q) += sizeof(struct _message_hdr) + msghdr->len;
 
     return msghdr->len;
+}
+
+
+unsigned char*
+queue_last_error(void *queue)
+{
+    return (unsigned char*)(((struct message_queue*)queue)->err);
 }
 
 
