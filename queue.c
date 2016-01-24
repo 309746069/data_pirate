@@ -26,7 +26,7 @@ unsigned int free_count     = 0;
                     (struct _message_hdr*)( __queue_->ridx.offset +            \
                     (unsigned char*)__queue_->ridx.current_node->buf ) )
 
-
+// only use in this file struct ================================================
 struct list_node
 {
     void            *next;
@@ -60,12 +60,12 @@ struct message_queue
 #define _WRITE_OFFSET(__queue_)      (__queue_->widx.offset)
 #define _READ_OFFSET(__queue_)       (__queue_->ridx.offset)
 
+    unsigned char       write_end;
     unsigned int        node_buf_size;
     unsigned char       err[1024];
 };
 
-
-
+// function ====================================================================
 struct list_node*
 node_malloc(struct message_queue *queue)
 {
@@ -101,8 +101,8 @@ node_free(struct list_node *node)
 
 
 void*
-queue_new(  const unsigned int  per_node_size,
-            unsigned char       *return_err_buf)
+queue_create(   const unsigned int  per_node_size,
+                unsigned char       *return_err_buf)
 {
     struct message_queue    *queue  = 0;
     struct _message_hdr     *msghdr = 0;
@@ -160,25 +160,27 @@ failed_return:
 }
 
 
-
-
-
-
 int
 queue_write_message(const void          *queue,
                     const unsigned char *msg,
                     const unsigned int  msg_len)
 {
     struct message_queue    *q          = (struct message_queue*)queue;
-    struct _message_hdr     *msghdr     = _GET_WRITE_MSG_HDR(q);
-    unsigned int            freesize    = q->node_buf_size - _WRITE_OFFSET(q);
 
     if(0 == q)
     {
         return QUEUE_ERROR;
     }
+    if(true == q->write_end)
+    {
+        return QUEUE_END;
+    }
 
-    // current node freesize not enough  (PS: *2,for NODE_END_MSG)
+    struct _message_hdr     *msghdr     = _GET_WRITE_MSG_HDR(q);
+    unsigned int            freesize    = q->node_buf_size - _WRITE_OFFSET(q);
+
+    // current node freesize not enough
+    //   (PS: *2,for NODE_END_MSG || MESSAGE_QUEUE_END_MSG)
     if(sizeof(struct _message_hdr)*2 + msg_len >= freesize)
     {
         _WRITE_NODE(q)->next    = node_malloc(q);
@@ -210,21 +212,40 @@ queue_write_message(const void          *queue,
 
 
 int
+queue_write_end(const void *queue)
+{
+    struct message_queue    *q  = (struct message_queue*)queue;
+    if(0 == q)
+    {
+        return QUEUE_ERROR;
+    }
+
+    // free spcace is enough, the reason is in queue_write_message
+    struct _message_hdr     *msghdr = _GET_WRITE_MSG_HDR(q);
+    msghdr->state   = MESSAGE_QUEUE_END_MSG;
+    q->write_end    = true;
+
+    return true;
+}
+
+
+int
 queue_get_next_msg_len(void *queue)
 {
     struct message_queue    *q          = (struct message_queue*)queue;
-    struct _message_hdr     *msghdr     = _GET_READ_MSG_HDR(q);
-    struct list_node        *tmp        = _READ_NODE(q);
 
     if(0 == q)
     {
         return QUEUE_ERROR;
     }
 
+    struct _message_hdr     *msghdr     = _GET_READ_MSG_HDR(q);
+    struct list_node        *tmp        = _READ_NODE(q);
+
     switch(msghdr->state)
     {
         case NO_MSG:
-            return 0;
+            return QEUUE_NO_MSG;
         case HAVA_MSG:
             return msghdr->len;
         case NODE_END_MSG:
@@ -237,37 +258,47 @@ queue_get_next_msg_len(void *queue)
             return queue_get_next_msg_len(q);
         }
         case MESSAGE_QUEUE_END_MSG:
-            return 0;
+            return QUEUE_END;
         default:
-            return 0;
+            return QUEUE_ERROR;
     }
 }
 
 
 int
 queue_read_message( void            *queue,
-                    unsigned char   **ret_msg_ptr)
+                    unsigned char   **ret_msg_ptr,
+                    unsigned int    *msg_len)
 {
     struct message_queue    *q          = (struct message_queue*)queue;
     struct _message_hdr     *msghdr     = 0;
 
+    *msg_len    = 0;
     if(0 == q)
     {
         return QUEUE_ERROR;
     }
 
-    if(0 == queue_get_next_msg_len(queue))
+    // filter
+    switch(queue_get_next_msg_len(queue))
     {
-        return 0;
+        case QEUUE_NO_MSG:
+            return QEUUE_NO_MSG;
+        case QUEUE_ERROR:
+            return QUEUE_ERROR;
+        case QUEUE_END:
+            return QUEUE_END;
     }
 
-    msghdr     = _GET_READ_MSG_HDR(q);
+    msghdr          = _GET_READ_MSG_HDR(q);
 
     *ret_msg_ptr    = (unsigned char*)msghdr + sizeof(struct _message_hdr);
 
     _READ_OFFSET(q) += sizeof(struct _message_hdr) + msghdr->len;
 
-    return msghdr->len;
+    *msg_len        = msghdr->len;
+
+    return true;
 }
 
 
@@ -278,7 +309,33 @@ queue_last_error(void *queue)
 }
 
 
+unsigned char
+queue_test_end(void *queue)
+{
+    return (unsigned char)(((struct message_queue*)queue)->write_end);
+}
 
+
+void*
+queue_destory(void* queue)
+{
+    struct message_queue    *q      = (struct message_queue*)queue;
+    struct list_node        *tmp    = 0;
+    if(0 == q)
+    {
+        return q;
+    }
+
+    while(_READ_NODE(q))
+    {
+        tmp = _READ_NODE(q);
+        _READ_NODE(q)   = _READ_NODE(q)->next;
+        node_free(tmp);
+    }
+
+    free(queue);
+    return 0;
+}
 
 
 
