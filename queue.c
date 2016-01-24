@@ -6,6 +6,16 @@
 
 #include "common.h"
 
+#if 0
+// only count, cannot show is memory overflow
+unsigned int malloc_count   = 0;
+unsigned int free_count     = 0;
+
+#define malloc(xxx) malloc(xxx);                                               \
+                    printf("============ malloc_count : %u\n", malloc_count ++);
+#define free(xxx)   free(xxx);                                                 \
+                    printf("============ free_count : %u\n", free_count ++);
+#endif
 
 
 #define _GET_WRITE_MSG_HDR(__queue_)    (                                      \
@@ -51,6 +61,8 @@ struct message_queue
 #define _READ_OFFSET(__queue_)       (__queue_->ridx.offset)
 
     unsigned int        node_buf_size;
+    // todo: use this err buf
+    unsigned char       err[1024];
 };
 
 
@@ -65,6 +77,7 @@ node_malloc(struct message_queue *queue)
     {
         return 0;
     }
+    memset(node, 0, sizeof(struct list_node));
 
     node->buf   = (unsigned char*)malloc(queue->node_buf_size);
     if(0 == node->buf)
@@ -72,10 +85,18 @@ node_malloc(struct message_queue *queue)
         free(node);
         return 0;
     }
+    memset(node->buf, 0, queue->node_buf_size);
 
     return node;
 }
 
+
+void
+node_free(struct list_node *node)
+{
+    free(node->buf);
+    free(node);
+}
 
 
 
@@ -95,7 +116,8 @@ queue_init( const unsigned int  per_node_size,
     }
     memset(queue, 0, sizeof(struct message_queue));
 
-    queue->node_buf_size    = per_node_size > 3 ? per_node_size : 1024*64;
+    queue->node_buf_size    = per_node_size > sizeof(struct _message_hdr)*3 ?
+                                 per_node_size : 1024*64;
 
     // create queue list root
     _WRITE_NODE(queue)  = node_malloc(queue);
@@ -153,8 +175,18 @@ queue_write_message(const void          *queue,
     struct _message_hdr     *msghdr     = _GET_WRITE_MSG_HDR(q);
     unsigned int            freesize    = q->node_buf_size - _WRITE_OFFSET(q);
 
-    // current node freesize not enough
-    if(sizeof(struct _message_hdr) + msg_len > freesize)
+    if(0 == q)
+    {
+        if(return_err)
+        {
+            char    *retstring  = "message_queue is empty!\n";
+            memcpy(return_err, retstring, strlen(retstring));
+        }
+        return false;
+    }
+
+    // current node freesize not enough  (PS: *2,for NODE_END_MSG)
+    if(sizeof(struct _message_hdr)*2 + msg_len >= freesize)
     {
         _WRITE_NODE(q)->next    = node_malloc(q);
         if(0 == _WRITE_NODE(q)->next)
@@ -194,6 +226,11 @@ queue_get_next_msg_len(void *queue)
     struct _message_hdr     *msghdr     = _GET_READ_MSG_HDR(q);
     struct list_node        *tmp        = _READ_NODE(q);
 
+    if(0 == q)
+    {
+        return 0;
+    }
+
     switch(msghdr->state)
     {
         case NO_MSG:
@@ -204,7 +241,8 @@ queue_get_next_msg_len(void *queue)
         {
             _READ_NODE(q)   = _READ_NODE(q)->next;
             _READ_OFFSET(q) = 0;
-            free(tmp);
+
+            node_free(tmp);
 
             return queue_get_next_msg_len(q);
         }
@@ -222,6 +260,11 @@ queue_read_message( void            *queue,
 {
     struct message_queue    *q          = (struct message_queue*)queue;
     struct _message_hdr     *msghdr     = 0;
+
+    if(0 == q)
+    {
+        return 0;
+    }
 
     if(0 == queue_get_next_msg_len(queue))
     {
