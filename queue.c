@@ -101,8 +101,8 @@ node_free(struct list_node *node)
 
 
 void*
-queue_init( const unsigned int  per_node_size,
-            unsigned char       *return_err)
+queue_new(  const unsigned int  per_node_size,
+            unsigned char       *return_err_buf)
 {
     struct message_queue    *queue  = 0;
     struct _message_hdr     *msghdr = 0;
@@ -116,7 +116,7 @@ queue_init( const unsigned int  per_node_size,
     memset(queue, 0, sizeof(struct message_queue));
 
     queue->node_buf_size    = per_node_size > sizeof(struct _message_hdr)*3 ?
-                                 per_node_size : 1024*64;
+                                 per_node_size : QUEUE_NODE_DEFAULT_SIZE;
 
     // create queue list root
     _WRITE_NODE(queue)  = node_malloc(queue);
@@ -142,10 +142,10 @@ success_return:
 
 failed_return:
 
-    if(return_err)
+    if(return_err_buf)
     {
-        *return_err = 0;
-        memcpy(return_err, strerror(errno), strlen(strerror(errno)));
+        *return_err_buf = 0;
+        memcpy(return_err_buf, strerror(errno), strlen(strerror(errno)));
     }
 
     if(queue)
@@ -175,9 +175,7 @@ queue_write_message(const void          *queue,
 
     if(0 == q)
     {
-        char    *retstring  = "message_queue is empty!\n";
-        memcpy(q->err, retstring, strlen(retstring));
-        return false;
+        return QUEUE_ERROR;
     }
 
     // current node freesize not enough  (PS: *2,for NODE_END_MSG)
@@ -220,7 +218,7 @@ queue_get_next_msg_len(void *queue)
 
     if(0 == q)
     {
-        return 0;
+        return QUEUE_ERROR;
     }
 
     switch(msghdr->state)
@@ -248,14 +246,14 @@ queue_get_next_msg_len(void *queue)
 
 int
 queue_read_message( void            *queue,
-                    unsigned char   *msg_buf)
+                    unsigned char   **ret_msg_ptr)
 {
     struct message_queue    *q          = (struct message_queue*)queue;
     struct _message_hdr     *msghdr     = 0;
 
     if(0 == q)
     {
-        return 0;
+        return QUEUE_ERROR;
     }
 
     if(0 == queue_get_next_msg_len(queue))
@@ -265,9 +263,7 @@ queue_read_message( void            *queue,
 
     msghdr     = _GET_READ_MSG_HDR(q);
 
-    memcpy( msg_buf,
-            (unsigned char*)msghdr + sizeof(struct _message_hdr),
-            msghdr->len);
+    *ret_msg_ptr    = (unsigned char*)msghdr + sizeof(struct _message_hdr);
 
     _READ_OFFSET(q) += sizeof(struct _message_hdr) + msghdr->len;
 
