@@ -16,22 +16,18 @@ queue_create(   const unsigned int  per_node_size,
 int
 queue_write_message(const void          *queue,
                     const unsigned char *msg,
-                    const unsigned int  msg_len);
+                    const unsigned int  msg_len,
+                    unsigned char       *return_err_buf);
 
 int
 queue_write_end(const void *queue);
 
 // reader thread function ======================================================
 int
-queue_get_next_msg_len(void *queue);
-
-int
 queue_read_message( void            *queue,
                     unsigned char   **ret_msg_ptr,
-                    unsigned int    *msg_len);
-
-unsigned char*
-queue_last_error(void *queue);
+                    unsigned int    *msg_len,
+                    unsigned char   *errret_buf);
 
 unsigned char
 queue_test_end(void *queue);

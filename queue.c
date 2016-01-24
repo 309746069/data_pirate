@@ -62,7 +62,6 @@ struct message_queue
 
     unsigned char       write_end;
     unsigned int        node_buf_size;
-    unsigned char       err[1024];
 };
 
 // function ====================================================================
@@ -163,7 +162,8 @@ failed_return:
 int
 queue_write_message(const void          *queue,
                     const unsigned char *msg,
-                    const unsigned int  msg_len)
+                    const unsigned int  msg_len,
+                    unsigned char       *return_err_buf)
 {
     struct message_queue    *q          = (struct message_queue*)queue;
 
@@ -174,6 +174,10 @@ queue_write_message(const void          *queue,
     if(true == q->write_end)
     {
         return QUEUE_END;
+    }
+    if(0 == msg)
+    {
+        return QUEUE_ERROR;
     }
 
     struct _message_hdr     *msghdr     = _GET_WRITE_MSG_HDR(q);
@@ -186,7 +190,7 @@ queue_write_message(const void          *queue,
         _WRITE_NODE(q)->next    = node_malloc(q);
         if(0 == _WRITE_NODE(q)->next)
         {
-            memcpy(q->err, strerror(errno), strlen(strerror(errno)));
+            memcpy(return_err_buf, strerror(errno), strlen(strerror(errno)));
             return false;
         }
 
@@ -268,17 +272,24 @@ queue_get_next_msg_len(void *queue)
 int
 queue_read_message( void            *queue,
                     unsigned char   **ret_msg_ptr,
-                    unsigned int    *msg_len)
+                    unsigned int    *msg_len,
+                    unsigned char   *return_err_buf)
 {
-    struct message_queue    *q          = (struct message_queue*)queue;
-    struct _message_hdr     *msghdr     = 0;
+    struct message_queue    *q      = (struct message_queue*)queue;
+    struct _message_hdr     *msghdr = 0;
 
-    *msg_len    = 0;
     if(0 == q)
     {
         return QUEUE_ERROR;
     }
 
+    if(0 == msg_len || 0 == ret_msg_ptr)
+    {
+        return QUEUE_ERROR;
+    }
+
+    *ret_msg_ptr    = 0;
+    *msg_len        = 0;
     // filter
     switch(queue_get_next_msg_len(queue))
     {
@@ -299,13 +310,6 @@ queue_read_message( void            *queue,
     *msg_len        = msghdr->len;
 
     return true;
-}
-
-
-unsigned char*
-queue_last_error(void *queue)
-{
-    return (unsigned char*)(((struct message_queue*)queue)->err);
 }
 
 
