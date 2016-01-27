@@ -1,5 +1,12 @@
 CC=gcc
-OBJECT=main.o robber.o common.o hunter.o sender.o cheater.o queue.o net_state.o \
+OBJECT=main.o \
+       common.o \
+       hunter.o \
+       sender.o \
+       cheater.o \
+       queue.o \
+       net_state.o \
+       robber.o
        
 TARGET=data_pirate
 LIB= -lpcap -lnet -lpthread
@@ -12,9 +19,9 @@ $(TARGET): $(OBJECT)
 	$(CC) -o $(TARGET) $(OBJECT) $(LIB)
 
 run: $(TARGET)
-	@echo "\033[1m[run]====================="
+	@echo "\033[1m[run]=====================\033[0m\n"
 	@- ./$(TARGET)
-	@echo "[end]=====================\033[0m\n"
+	@echo "\033[1m[end]=====================\033[0m\n"
 
 log:
 	@date > $(LOG)

