@@ -1,8 +1,8 @@
 #pragma once
 
-#define QEUUE_NO_MSG                    (0)
-#define QUEUE_ERROR                     (-1)
-#define QUEUE_END                       (-2)
+#define QEUUE_NO_MSG                    (-1)
+#define QUEUE_ERROR                     (-2)
+#define QUEUE_END                       (-3)
 
 
 #define QUEUE_NODE_DEFAULT_SIZE         (1024*64)

@@ -4,6 +4,8 @@
 
 
 
+void    *arpqueue   = 0;
+
 // // fake Duff's Device
 // void
 // duff_memclr(char* p, unsigned int size)
@@ -121,44 +123,5 @@ __send_package_null(const unsigned char* pkt, const unsigned int pkt_size)
 }
 
 
-int
-net_state_init( const unsigned char *interface,
-                const unsigned char *mac,
-                const unsigned int  ip_netint32,
-                const unsigned int  ip_mask,
-                const unsigned int  ip_route_netint32)
-{
-    int len     = 0;
-
-    if(!interface || !mac || !ip_netint32 || !ip_mask || !ip_route_netint32)
-    {
-        _MESSAGE_OUT("[!] net_state_init failed, check network!\n");
-        return false;
-    }
-
-    net_info    = malloc( sizeof(struct _net_state) );
-    memset(net_info, 0, sizeof(struct _net_state));
-
-    len                     = strlen(interface);
-    net_info->net_interface = malloc(len + 1);
-    memset(net_info->net_interface, 0, len + 1);
-    memcpy(net_info->net_interface, interface, len);
-
-    memcpy(net_info->mac, mac, 6);
-
-    net_info->ip_netint32       = ip_netint32;
-    net_info->ip_mask           = ip_mask;
-    net_info->ip_route_netint32 = ip_route_netint32;
-
-    net_info->d_arr_max         = ~(_ntoh32(ip_mask)) + 1;
-
-    net_info->d_arr = malloc(sizeof(struct _device_info) * net_info->d_arr_max);
-    memset(net_info->d_arr, 0, sizeof(struct _device_info)*net_info->d_arr_max);
-
-    return true;
-}
-
-
 LOG_OUT_FUN         _log_out        = __log_out_null;
 SEND_PACKAGE_FUN    _send_package   = __send_package_null;
-struct _net_state   *net_info       = 0;

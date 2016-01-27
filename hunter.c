@@ -4,6 +4,7 @@
 #include <pcap.h>
 
 #include "common.h"
+#include "net_state.h"
 
 
 
@@ -12,62 +13,75 @@ char            hunter_errbuf[PCAP_ERRBUF_SIZE] = {0};
 pthread_t       hunter                          = 0;
 
 
-struct package_info
-{
-    unsigned char   *packet;
-    unsigned int    size;
-};
-
-void*
-thread_sender(void* arg)
-{
-    struct package_info *pi     = (struct package_info*)arg;
-    struct _ethhdr      *eth    = (struct _ethhdr*)pi->packet;
-    struct _iphdr       *ip     = 0;
-
-    if(0 == strncmp(eth->h_source, "\x24\x24\x0e\x41\x58\xc7", 6))
-    {
-        _MESSAGE_OUT("there it is \n");
-        memcpy(eth->h_dest, "\xd8\x15\x0d\x8c\x04\xfe", 6);
-        if(false == _SEND_PACKAGE(pi->packet, pi->size))
-            _MESSAGE_OUT("wtf???\n");
-    }
-
-    else if(_ntoh16(_ETH_P_IP) == eth->h_proto)
-    {
-        ip  = pi->packet + sizeof(struct _ethhdr);
-        if(_iptonetint32("192.168.1.104") == ip->daddr && 0 != strncmp(eth->h_source, "\xd4\x33\xa3\x11\x11\x11", 6))
-        {
-            _MESSAGE_OUT("=====there it is \n");
-            memcpy(eth->h_dest, "\x24\x24\x0e\x41\x58\xc7", 6);
-            if(false == _SEND_PACKAGE(pi->packet, pi->size))
-                _MESSAGE_OUT("wtf???\n");
-        }
-    }
-
-
-    // free(pi->packet);
-}
-
-
 
 void
 packet_dispatch(    u_char                      *userarg,   // callback args
                     const struct pcap_pkthdr    *pkthdr,    // packet info
                     const u_char                *packet)    // packet buf
 {
+    struct _ethhdr      *eth        = (struct _ethhdr*)packet;
+    struct hostent      *hi          = 0;
+
+    // send by us, return;
+    if( 0 == memcmp(eth->h_source, my_mac_address(), 6) )
+    {
+        return;
+    }
+
+
+
+
+    if(_ntoh16(_ETH_P_ARP) == eth->h_proto)
+    {
+        struct _arphdr  *arp    = packet + sizeof(struct _ethhdr);
+        unsigned int    ip      = 0;
+        memcpy(&ip, arp->ar_sip, 4);
+
+        printf("%14s is at %02X:%02X:%02X:%02X:%02X:%02X\n",
+                _netint32toip(ip),
+                arp->ar_sha[0], arp->ar_sha[1], arp->ar_sha[2], 
+                arp->ar_sha[3], arp->ar_sha[4], arp->ar_sha[5] );
+        
+        set_host_info(ip, arp->ar_sha, pkthdr->ts.tv_sec);
+
+    }
+
+    return;
+
+
+
+
+
     static unsigned int i           = 0;
     unsigned char       p[65535]    = {0};
     pthread_t           t           = 0;
     int                 err         = 0;
-    struct _ethhdr      *eth        = 0;
+
     struct _iphdr       *ip         = 0;
-    struct package_info pi          = {.packet = p, .size = pkthdr->len};
 
-    _MESSAGE_OUT("[%05u] -> size : %d\n", i++, pkthdr->len);
-    memcpy(p, packet, pi.size);
 
-    thread_sender((void*)&pi);return;
+    char    str[3000]    = {0};
+    int     len         = 0;
+    if(i <= 0xffffffff)
+    {
+        sprintf(str, "[%08u]->%u\n", i++, pkthdr->len);
+        // queue_write_message(arpqueue, str, strlen(str) + pkthdr->len, 0);
+    }
+    else
+    {
+        _MESSAGE_OUT("======================================write end\n");
+        // queue_write_end(arpqueue);
+    }
+
+    // if(_ntoh16(_ETH_P_ARP) == eth->h_proto)
+    // {
+    //     char*   str =  "arp package\n";
+    //     queue_write_message(arpqueue, str, strlen(str), 0);
+    // }
+    // _MESSAGE_OUT("[%05u] -> size : %d\n", i++, pkthdr->len);
+    // memcpy(p, packet, pi.size);
+
+    // thread_sender((void*)&pi);return;
 }
 
 
@@ -82,7 +96,7 @@ hunter_loop_thread(void* args)
 
 
 int
-hunter_initialize(const char* interface, char** return_err)
+hunter_start(const char* interface, char** return_err)
 {
     int     err         = 0;
     char*   notempty    = "initialize failed, hunter notempty!";
@@ -118,7 +132,7 @@ hunter_initialize(const char* interface, char** return_err)
 
 
 void
-hunter_finish(void)
+hunter_stop(void)
 {
     if(hunter && pd)
     {

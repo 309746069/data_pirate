@@ -5,15 +5,62 @@
 
 #include "data_pirate.h"
 #include "sender.h"
+#include "net_state.h"
 
 #define INTERFACE   "en0"
+
+
+unsigned char*
+get_my_ip_address(unsigned char* card_name)
+{
+    unsigned char   *f  = "ifconfig %s | grep -e \"inet\\b\" | awk '{print $2}'";
+    static unsigned char    ret[1024]   = {0};
+    sprintf(ret, f, card_name);
+    FILE*   fp  = popen(ret, "r");
+    fgets(ret, 1024, fp);
+    pclose(fp);
+    return ret;
+}
+
+unsigned char*
+get_my_eth_address(unsigned char* card_name)
+{
+    unsigned char   *f  = "ifconfig %s | grep -e \"ether\\b\" | awk '{print $2}'";
+    unsigned char   buf[1024]   = {0};
+    static unsigned char   mac[8]      = {0};
+    sprintf(buf, f, card_name);
+    FILE*   fp  = popen(buf, "r");
+    fgets(buf, 1024, fp);
+    pclose(fp);
+
+    sscanf(buf, "%2x:%2x:%2x:%2x:%2x:%2x", 
+        mac, mac + 1, mac + 2, mac + 3, mac + 4, mac + 5);
+
+    return mac;
+}
+
+
+unsigned int
+get_my_net_mask(unsigned char* card_name)
+{
+    unsigned int    netmask = 0;
+    unsigned char   *f  = "ifconfig %s | grep -e \"netmask\" | awk '{print $4}'";
+    unsigned char   buf[1024]   = {0};
+    sprintf(buf, f, card_name);
+    FILE*   fp  = popen(buf, "r");
+    fgets(buf, 1024, fp);
+    pclose(fp);
+    sscanf(buf, "0x%08x", &netmask);
+
+    return netmask;
+}
 
 
 
 int
 finish(void)
 {
-    hunter_finish();
+    hunter_stop();
     sender_finish();
     return true;
 }
@@ -37,53 +84,39 @@ initialize(const int argc, const char* argv[])
     _SET_SEND_PACKAGE_FUN(sender_send);
 
     if(false == net_state_init( INTERFACE,
-                                "\xd4\x33\xa3\x11\x11\x11",
-                                _iptonetint32("192.168.1.109"),
-                                _iptonetint32("255.255.255.0"),
+                                get_my_eth_address(INTERFACE),
+                                _iptonetint32(get_my_ip_address(INTERFACE)),
+                                _ntoh32(get_my_net_mask(INTERFACE)),
                                 _iptonetint32("192.168.1.1")) )
     {
         return false;
     }
 
 #if 1
-    _MESSAGE_OUT("card_name:\t%s\n", net_info->net_interface);
-    _MESSAGE_OUT("ip:\t\t%s\n", _netint32toip(net_info->ip_netint32));
-    _MESSAGE_OUT("mask:\t\t%s\n", _netint32toip(net_info->ip_mask));
-    _MESSAGE_OUT("route:\t\t%s\n", _netint32toip(net_info->ip_route_netint32));
-    _MESSAGE_OUT("max devices:\t%u\n", net_info->d_arr_max);
+    printf("card_name:\t%s\n", my_net_interface());
+    printf("ip:\t\t%s\n", _netint32toip( my_ip_netint32()));
+    printf("mask:\t\t%s\n", _netint32toip(net_mask_netint32()));
+    printf("route:\t\t%s\n", _netint32toip(route_ip_netint32()));
+    printf("max devices:\t%u\n", device_max());
 #endif
 
     signal(SIGINT, signal_handler);     // ctrl+c handler
 
     if(false == sender_initialize(INTERFACE, &perr))
     {
-        _MESSAGE_OUT("%s\n", perr);
+        printf("%s\n", perr);
         return false;
+    }
+    
+    if(false == hunter_start(INTERFACE, &perr))
+    {
+        printf("[!] hunter_initialize failed! caused by : %s\n",         \
+                        perr);
+        return -1;
     }
 
     return true;
 }
-
-
-void*
-thread_reader(void* q)
-{
-    char    err[10000];
-    for(;;)
-    {
-        sleep(1);
-        if(queue_read_message(q, err))
-        {
-            printf("%s\n", err);
-        }
-        else
-            printf("empty\n");
-    }
-
-}
-
-
-
 
 
 int
@@ -92,36 +125,7 @@ main(const int argc, const char* argv[])
     int         err     = 0;
     pthread_t   hunter  = 0;
     char*       perr    = 0;
-
-
-    pthread_t   pt      = 0;
-    void*       q       = queue_init(10000, 0);
-
-    if(!q)
-        printf("err\n");
-
-    pthread_create(&pt, 0, thread_reader, q);
-
-    int j   = 0;
-    for(j = 0; j<99; j++)
-    {
-        sleep(2);
-        char str[100]   = {0};
-        sprintf(str, "hello , %d", j);
-        queue_write_message(q, str, strlen(str), 0);
-        // if(queue_read_message(q, &err))
-        // {
-        //     printf("%d\n", err);
-        // }
-    }
-
-    printf("write end\n");
-    while(1) sleep(1);
-
-    exit(0);
-
-
-
+    char        buf[1024]   = {0};
 
 
     if(false == initialize(argc, argv))
@@ -129,23 +133,8 @@ main(const int argc, const char* argv[])
         return -1;
     }
 
-    if(false == hunter_initialize(INTERFACE, &perr))
-    {
-        _MESSAGE_OUT("[!] hunter_initialize failed! caused by : %s\n",         \
-                        perr);
-        return -1;
-    }
 
-    // pthread_t n;
-    // err = pthread_create(&n, 0, cheater_test, 0);
-    // if(err)
-    // {
-    //     _MESSAGE_OUT("[!] create err : %s", strerror(err));
-    // }
-    cheater_test();
-    // sleep(1); exit(0);
     while(1) sleep(1);
-
 
     if(false == finish())
     {
