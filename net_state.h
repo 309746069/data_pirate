@@ -70,4 +70,5 @@ get_cheat_state(unsigned int ip_netint32);
 unsigned char
 get_cheat_mode(unsigned int ip_netint32);
 
-
+int
+is_target_in_LAN(unsigned int ip_netint32);

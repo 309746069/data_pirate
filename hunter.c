@@ -19,7 +19,7 @@ packet_catcher( u_char                      *userarg,   // callback args
                 const struct pcap_pkthdr    *pkthdr,    // packet info
                 const u_char                *packet)    // packet buf
 {
-    robber(packet, pkthdr->len);
+    robber(packet, pkthdr->len, pkthdr->ts.tv_sec);
 #if 0
     struct _ethhdr      *eth        = (struct _ethhdr*)packet;
     struct hostent      *hi          = 0;

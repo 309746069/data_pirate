@@ -110,7 +110,7 @@ cheater_arp_request_broadcast_sender(
 int
 cheater_arp_throw_shit(unsigned int target, unsigned int iwannabe)
 {
-    if(false == is_device_online(target) & is_device_online(iwannabe))
+    if(false == is_device_online(target) || false == is_device_online(iwannabe))
     {
         return false;
     }

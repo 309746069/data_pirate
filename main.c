@@ -70,6 +70,7 @@ void
 signal_handler(int signo)
 {
     finish();
+    cheater_stop();
     printf("[!] exit by signal_handler\n\033[0m");
     exit(0);
 }
@@ -133,8 +134,27 @@ main(const int argc, const char* argv[])
         return -1;
     }
 
+    cheater_start();
 
-    while(1) sleep(1);
+#define TARGET_IP       "192.168.1.9"
+
+    do{
+        cheater_scan();
+        sleep(1);
+    }while(!is_device_online(_iptonetint32(TARGET_IP)));
+
+    cheater_add_mitm(_iptonetint32(TARGET_IP));
+
+    _DEBUG_LOG("cheater start !\ntarget = %s, mac : ", TARGET_IP);
+    unsigned char       *mac    = device_mac_address(_iptonetint32(TARGET_IP));
+    _DEBUG_LOG("%02X:%02X:%02X:%02X:%02X:%02X\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    getchar();
+
+    cheater_delete(_iptonetint32(TARGET_IP));
+    _DEBUG_LOG("cheater stop !\ntarget = %s\n", TARGET_IP);
+    sleep(5);
+
+    // while(1) sleep(1);
 
     if(false == finish())
     {

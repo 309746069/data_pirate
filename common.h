@@ -31,10 +31,13 @@
     #define false                       (0)
 #endif
 
+#define PACKET_BUFSIZE                  (1800)
+
+#define PKT_ACCEPT                      (0)
+#define PKT_STOLEN                      (1)
 
 // struct define ===============================================================
 
-#define _IPPROTO_TCP                    (0x06)
 
 #define _PORT_80                        (0x0050)
 
@@ -88,6 +91,7 @@ struct _iphdr
     unsigned short  id;
     unsigned short  frag_off;
     unsigned char   ttl;
+#define _IPPROTO_TCP                    (0x06)
     unsigned char   protocol;
     unsigned char   check;
     unsigned int    saddr;

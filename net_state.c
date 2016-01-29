@@ -241,3 +241,11 @@ get_cheat_mode(unsigned int ip_netint32)
     return net_info->d_arr[device_index(ip_netint32)].cheat_mode;
 }
 
+
+int
+is_target_in_LAN(unsigned int ip_netint32)
+{
+    return (route_ip_netint32() & net_mask_netint32())
+             == (ip_netint32 & net_mask_netint32());
+}
+

@@ -6,7 +6,9 @@ OBJECT=main.o \
        cheater.o \
        queue.o \
        net_state.o \
-       robber.o
+       robber.o \
+       tcp_handler.o \
+       http_handler.o
        
 TARGET=data_pirate
 LIB= -lpcap -lnet -lpthread
@@ -19,7 +21,7 @@ $(TARGET): $(OBJECT)
 	$(CC) -o $(TARGET) $(OBJECT) $(LIB)
 
 run: $(TARGET)
-	@echo "\033[1m[run]=====================\033[0m\n"
+	@echo "\033[1m[run]=====================\033[0m"
 	@- ./$(TARGET)
 	@echo "\033[1m[end]=====================\033[0m\n"
 
