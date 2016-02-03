@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "common.h"
+#include "router.h"
 #include "net_state.h"
 #include "queue.h"
 

@@ -5,6 +5,7 @@
 
 #include "common.h"
 #include "net_state.h"
+#include "router.h"
 
 
 
@@ -19,72 +20,7 @@ packet_catcher( u_char                      *userarg,   // callback args
                 const struct pcap_pkthdr    *pkthdr,    // packet info
                 const u_char                *packet)    // packet buf
 {
-    robber(packet, pkthdr->len, pkthdr->ts.tv_sec);
-#if 0
-    struct _ethhdr      *eth        = (struct _ethhdr*)packet;
-    struct hostent      *hi          = 0;
-
-    // send by us, return;
-    if( 0 == memcmp(eth->h_source, my_mac_address(), 6) )
-    {
-        return;
-    }
-
-
-
-
-    if(_ntoh16(_ETH_P_ARP) == eth->h_proto)
-    {
-        struct _arphdr  *arp    = packet + sizeof(struct _ethhdr);
-        unsigned int    ip      = 0;
-        memcpy(&ip, arp->ar_sip, 4);
-
-        printf("%14s is at %02X:%02X:%02X:%02X:%02X:%02X\n",
-                _netint32toip(ip),
-                arp->ar_sha[0], arp->ar_sha[1], arp->ar_sha[2], 
-                arp->ar_sha[3], arp->ar_sha[4], arp->ar_sha[5] );
-        
-        set_host_info(ip, arp->ar_sha, pkthdr->ts.tv_sec);
-
-    }
-
-    return;
-
-
-
-
-
-    static unsigned int i           = 0;
-    unsigned char       p[65535]    = {0};
-    pthread_t           t           = 0;
-    int                 err         = 0;
-
-    struct _iphdr       *ip         = 0;
-
-
-    char    str[3000]    = {0};
-    int     len         = 0;
-    if(i <= 0xffffffff)
-    {
-        sprintf(str, "[%08u]->%u\n", i++, pkthdr->len);
-        // queue_write_message(arpqueue, str, strlen(str) + pkthdr->len, 0);
-    }
-    else
-    {
-        _MESSAGE_OUT("======================================write end\n");
-        // queue_write_end(arpqueue);
-    }
-
-    // if(_ntoh16(_ETH_P_ARP) == eth->h_proto)
-    // {
-    //     char*   str =  "arp package\n";
-    //     queue_write_message(arpqueue, str, strlen(str), 0);
-    // }
-    // _MESSAGE_OUT("[%05u] -> size : %d\n", i++, pkthdr->len);
-    // memcpy(p, packet, pi.size);
-
-    // thread_sender((void*)&pi);return;
-#endif
+    router(packet, pkthdr->len, &(pkthdr->ts));
 }
 
 

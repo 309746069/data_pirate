@@ -1,5 +1,5 @@
 #pragma once
-#include <time.h>
+#include <sys/time.h>
 
 #define CHEAT_OFF           0
 #define CHEAT_ON            1

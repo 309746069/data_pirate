@@ -1,17 +1,18 @@
 #include "tcp_handler.h"
 
 #include "common.h"
+#include "packet_wrapper.h"
 #include "http_handler.h"
 
 
 
 int
-tcp_handler(const unsigned char *packet, const unsigned int pkt_len)
+tcp_handler(void *pw)
 {
     int             ret     = PKT_ACCEPT;
-    struct _ethhdr  *eth    = packet;
-    struct _iphdr   *ip     = packet + sizeof(struct _ethhdr);
-    struct _tcphdr  *tcp    = packet + sizeof(struct _ethhdr)
+    struct _ethhdr  *eth    = pw_get_packet(pw);
+    struct _iphdr   *ip     = pw_get_packet(pw) + sizeof(struct _ethhdr);
+    struct _tcphdr  *tcp    = pw_get_packet(pw) + sizeof(struct _ethhdr)
                                 + sizeof(struct _iphdr);
 
 #if 0
@@ -21,7 +22,7 @@ tcp_handler(const unsigned char *packet, const unsigned int pkt_len)
 
     if(80 == _ntoh16(tcp->source) || 80 == _ntoh16(tcp->dest))
     {
-        ret = http_handler(packet, pkt_len);
+        ret = http_handler(pw);
     }
 
     return ret;

@@ -6,9 +6,9 @@ OBJECT=main.o \
        cheater.o \
        queue.o \
        net_state.o \
-       robber.o \
-       tcp_handler.o \
-       http_handler.o
+       router.o \
+       http.o \
+       packet_info.o
        
 TARGET=data_pirate
 LIB= -lpcap -lnet -lpthread
