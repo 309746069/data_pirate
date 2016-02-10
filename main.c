@@ -135,6 +135,22 @@ main(const int argc, const char* argv[])
     }
 
     cheater_start();
+#if 0
+    int i=5;
+    while(i--){ cheater_scan(); sleep(1);}
+    unsigned char   target_ip[100]  = {0};
+
+    printf("input the ip you want to mitm : \n");
+    sleep(1);
+    scanf("%s", target_ip);
+
+    cheater_add_mitm(_iptonetint32(target_ip));
+    getchar();
+    getchar();
+    cheater_delete(_iptonetint32(target_ip));
+
+
+#else
 
 #define TARGET_IP       "192.168.1.9"
 // #define TARGET_IP2      "192.168.1.104"
@@ -154,13 +170,15 @@ main(const int argc, const char* argv[])
     cheater_add_mitm(_iptonetint32(TARGET_IP2));
 #endif
 
-    _DEBUG_LOG("target = %15s, mac : ", TARGET_IP);
+    _DEBUG_LOG("target = %-15s, mac : ", TARGET_IP);
     unsigned char       *mac    = device_mac_address(_iptonetint32(TARGET_IP));
-    _DEBUG_LOG("%02X:%02X:%02X:%02X:%02X:%02X\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    _DEBUG_LOG("%02X:%02X:%02X:%02X:%02X:%02X\n",
+                        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 #ifdef TARGET_IP2
-    _DEBUG_LOG("target = %15s, mac : ", TARGET_IP2);
+    _DEBUG_LOG("target = %-15s, mac : ", TARGET_IP2);
     unsigned char       *mac2   = device_mac_address(_iptonetint32(TARGET_IP2));
-    _DEBUG_LOG("%02X:%02X:%02X:%02X:%02X:%02X\n", mac2[0], mac2[1], mac2[2], mac2[3], mac2[4], mac2[5]);
+    _DEBUG_LOG("%02X:%02X:%02X:%02X:%02X:%02X\n",
+                        mac2[0], mac2[1], mac2[2], mac2[3], mac2[4], mac2[5]);
 #endif
 
     getchar();
@@ -175,7 +193,9 @@ main(const int argc, const char* argv[])
 #ifdef TARGET_IP2
     _DEBUG_LOG("cheater stop !\ntarget = %s\n", TARGET_IP2);
 #endif
-    sleep(5);
+
+#endif
+    sleep(8);
 
     // while(1) sleep(1);
 

@@ -59,6 +59,17 @@ is_arp_packet(  const unsigned char*    packet,
     unsigned int    ip      = 0;
 
     memcpy(&ip, arp->ar_sip, 4);
+
+#if 1
+    if(!is_device_online(ip))
+    {
+        unsigned char *mac  = arp->ar_sha;
+        _MESSAGE_OUT("%-15s is at %02X:%02X:%02X:%02X:%02X:%02X\n",
+                    _netint32toip(ip),
+                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+#endif
+
     set_host_info(ip, arp->ar_sha, cap_time->tv_sec);
 
     return true;

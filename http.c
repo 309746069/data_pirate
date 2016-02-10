@@ -16,11 +16,12 @@ http(void *pi)
 
     if(get_http_hdr_len(pi))
     {
-        if('G' == *http || 'P' == *http)
-        // if('H' == *http)
+        // if('G' == *http || 'P' == *http)
+        if('H' == *http)
         {
             unsigned char   out[1800]   = {0};
             memcpy(out, http, get_http_hdr_len(pi));
+            if(strnstr(out, "chunked", 1800))
             _MESSAGE_OUT("========================================\n%s", out);
         }
     }
