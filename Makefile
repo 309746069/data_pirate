@@ -8,10 +8,12 @@ OBJECT=main.o \
        net_state.o \
        router.o \
        http.o \
-       packet_info.o
+       packet_info.o \
+       gzip_wrapper.o \
+       tcp_stream.o
        
 TARGET=data_pirate
-LIB= -lpcap -lnet -lpthread
+LIB= -lpcap -lnet -lpthread -lz
 LOG=log.txt
 
 all: $(TARGET)

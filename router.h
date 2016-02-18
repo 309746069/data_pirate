@@ -61,7 +61,7 @@ struct _iphdr
     unsigned char   ttl;
 #define _IPPROTO_TCP                    (0x06)
     unsigned char   protocol;
-    unsigned char   check;
+    unsigned short  check;
     unsigned int    saddr;
     unsigned int    daddr;
     /*The options start here. */

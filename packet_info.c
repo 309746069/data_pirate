@@ -24,11 +24,28 @@ pi_create(unsigned char *packet, unsigned int pkt_len, struct timeval *cap_time)
     }
     memset(pi, 0, sizeof(struct packet_info));
 
-    memcpy(pi->packet, packet, pkt_len);
-    memcpy(&(pi->cap_time), cap_time, sizeof(struct timeval));
-    pi->pkt_len = pkt_len;
+    if(packet)
+    {
+        memcpy(pi->packet, packet, pkt_len);
+    }
+    if(cap_time)
+    {
+        memcpy(&(pi->cap_time), cap_time, sizeof(struct timeval));
+    }
+    if(pkt_len)
+    {
+        pi->pkt_len = pkt_len;
+    }
 
     return pi;
+}
+
+
+int
+pi_set_pkt_len(void *pi, unsigned int len)
+{
+    struct packet_info  *p  = pi;
+    return p ? p->pkt_len = len : 0;
 }
 
 

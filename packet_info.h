@@ -8,6 +8,9 @@ pi_create(  unsigned char   *packet,
             unsigned int    pkt_len,
             struct timeval  *cap_time);
 
+int
+pi_set_pkt_len(void *pi, unsigned int len);
+
 void
 pi_destory(void *pi);
 
