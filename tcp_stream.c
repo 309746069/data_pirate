@@ -128,149 +128,145 @@ is_tss_empty(void *tss)
 }
 
 
-
-struct ts_node**
-find_my_hash_head(void *tss, struct tcp_stream *ts)
+unsigned int
+ht_insert(struct ts_storage *tss, struct ts_node *tn)
 {
-    struct ts_storage   *t  = tss;
+    struct ts_node  *iter   = 0;
+    if(0 == tss || 0 == tn) return false;
 
-    return t ? &(t->ht[hash_index(ts)]) : 0;
-}
+    unsigned int    hi  = hash_index(&tn->tstream);
 
-
-// if return 0, hash table list is empty, got root node pointer
-// if return a pointer, maybe this ts is in the list or not,
-//  check by ts_equal function
-struct ts_node**
-find_my_hash_seat(void *tss, struct tcp_stream *ts)
-{
-    struct ts_node  **t  = find_my_hash_head(tss, ts);
-
-    while(t && *t && (*t)->hn && !ts_equal(&((*t)->tstream), ts)) *t = &((*t)->hn);
-
-#if 0
-    _MESSAGE_OUT("=========================\n");
-
-    if(t && ts_equal(&(t->tstream), ts))
+    // hash list is empty
+    if(0 == tss->ht[hi])
     {
-        _MESSAGE_OUT("%15s : %5u ---> ", _netint32toip(ts->client_ip), _ntoh16(ts->client_port));
-        _MESSAGE_OUT("%15s : %5u\n", _netint32toip(ts->server_ip), _ntoh16(ts->server_port));
+        tss->ht[hi] = tn;
+        tn->hn      = 0;
+        tn->hp      = 0;
+        return true;
     }
-#endif
 
-    return t;
+    iter    = tss->ht[hi];
+    // hash list not empty
+    while( !ts_equal(&(iter->tstream), &(tn->tstream))
+            && iter->hn )
+        iter    = iter->hn;
+
+    // already in the list
+    if(ts_equal(&(iter->tstream), &(tn->tstream)))
+        return false;
+
+    // not in the list
+    tn->hp      = iter;
+    tn->hn      = 0;
+    iter->hn    = tn;
+
+    return true;
 }
 
 
 unsigned int
-tss_insert(void *tss, void *pi)
+li_add_to_end(struct ts_storage *tss, struct ts_node *tn)
 {
-    struct ts_storage   *t      = tss;
-    struct ts_node      **tn    = 0;
-    struct tcp_stream   ts      = {0};
-    struct ts_node      *node   = 0;
+    if(0 == tss || 0 == tn) return false;
 
-    if(0 == t || 0 == pi)  return false;
-
-    if(0 == get_tcp_hdr(pi) || 0 == get_ip_hdr(pi)) return false;
-    ts.client_ip    = get_ip_hdr(pi)->saddr;
-    ts.server_ip    = get_ip_hdr(pi)->daddr;
-    ts.client_port  = get_tcp_hdr(pi)->source;
-    ts.server_port  = get_tcp_hdr(pi)->dest;
-
-    tn  = find_my_hash_seat(tss, &ts);
-
-    // already in the storage
-    if(*tn && ts_equal(&((*tn)->tstream), &ts)) return false;
-
-    node    = tn_malloc();
-    if(0 == node) return false;
-    memcpy(&(node->tstream), &ts, sizeof(struct tcp_stream));
-
-    // hash table operation
-    if(*tn)
+    // list empty
+    if(0 == tss->lr || 0 == tss->le)
     {
-        node->hp    = *tn;
-        node->hn    = 0;
-        (*tn)->hn      = node;
-    }
-    else
-    {
-        *tn         = node;
-        node->hp    = 0;
-        node->hn    = 0;
+        tn->lp  = 0;
+        tn->ln  = 0;
+        tss->lr = tn;
+        tss->le = tn;
+        return true;
     }
 
-    // list operation
-    if(is_tss_empty(tss))
-    {
-        t->lr       = node;
-        t->le       = node;
-        node->lp    = 0;
-        node->ln    = 0;
-    }
-    else
-    {
-        t->le->ln   = node;
-        node->lp    = t->le;
-        node->ln    = 0;
-        t->le       = node;
-    }
-
+    // list not empty & change the end of list
+    tn->lp      = tss->le;
+    tn->ln      = 0;
+    tss->le->ln = tn;
+    tss->le     = tn;
 
     return true;
 }
 
 
 struct tcp_stream*
-do_tss_search(void *tss, void *pi)
+ht_search(struct ts_storage *tss, struct tcp_stream *ts)
 {
-    struct ts_storage   *t      = tss;
-    struct ts_node      **tn     = 0;
+    struct ts_node  *iter   = 0;
+
+    if(0 == tss || 0 == ts) return 0;
+
+    unsigned int    hi  = hash_index(ts);
+
+    // empty
+    if(0 == tss->ht[hi]) return 0;
+
+    iter    = tss->ht[hi];
+    // hash list not empty
+    while( !ts_equal(&(iter->tstream), ts)
+            && iter)
+        iter    = iter->hn;
+
+    return iter ? &(iter->tstream) : 0;
+}
+
+
+unsigned int
+do_tss_insert(struct ts_storage *tss, void *pi)
+{
     struct tcp_stream   ts      = {0};
+    struct ts_node      *inode  = 0;
 
-    if(0 == t || 0 == pi)  return 0;
+    if(0 == tss || 0 == pi || 0 == get_tcp_hdr(pi) || 0 == get_ip_hdr(pi))
+        return false;
 
-    if(0 == get_tcp_hdr(pi) || 0 == get_ip_hdr(pi)) return 0;
     ts.client_ip    = get_ip_hdr(pi)->saddr;
     ts.server_ip    = get_ip_hdr(pi)->daddr;
     ts.client_port  = get_tcp_hdr(pi)->source;
     ts.server_port  = get_tcp_hdr(pi)->dest;
 
-    tn  = find_my_hash_seat(tss, &ts);
+    // alread in the storage
+    if(ht_search(tss, &ts)) return false;
 
-    return (*tn && ts_equal(&((*tn)->tstream), &ts)) ? &(*tn)->tstream : 0;
+    inode   = tn_malloc();
+    if(0 == inode) return false;
+    memcpy(&(inode->tstream), &ts, sizeof(struct tcp_stream));
+
+    // todo: if failed, release the node
+    return ht_insert(tss, inode) && li_add_to_end(tss, inode);
+}
+
+
+unsigned int
+tss_insert(void *tss, void *pi)
+{
+    return do_tss_insert((struct ts_storage*)tss, pi);
+}
+
+
+struct tcp_stream*
+do_tss_search(struct ts_storage *tss, void *pi)
+{
+    struct tcp_stream   ts      = {0};
+    struct ts_node      *inode  = 0;
+
+    if(0 == tss || 0 == pi || 0 == get_tcp_hdr(pi) || 0 == get_ip_hdr(pi))
+        return false;
+
+    ts.client_ip    = get_ip_hdr(pi)->saddr;
+    ts.server_ip    = get_ip_hdr(pi)->daddr;
+    ts.client_port  = get_tcp_hdr(pi)->source;
+    ts.server_port  = get_tcp_hdr(pi)->dest;
+
+    return ht_search(tss, &ts);
 }
 
 
 unsigned int
 tss_search(void *tss, void *pi)
 {
-#if 0
-    struct ts_storage   *t      = tss;
-    struct ts_node      *node   = 0;
-    if(!t) return false;
-    _MESSAGE_OUT("============================\n");
-    for(node = t->lr; node ; node = node->ln)
-    {
-        struct tcp_stream   *ts = &(node->tstream);
-        _MESSAGE_OUT("%-15s : %u ---> ", _netint32toip(ts->client_ip), _ntoh16(ts->client_port));
-        _MESSAGE_OUT("%-15s : %u\n", _netint32toip(ts->server_ip), _ntoh16(ts->server_port));
-    }
-#endif
-    return do_tss_search(tss, pi) ? true : false;
+    return do_tss_search((struct ts_storage*)tss, pi) ? true : false;
 }
-
-
-
-
-
-
-
-
-
-
-
 
 
 
