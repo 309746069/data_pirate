@@ -264,6 +264,30 @@ do_tss_search(struct ts_storage *tss, void *pi)
 unsigned int
 tss_search(void *tss, void *pi)
 {
+#if 0
+    struct ts_storage   *t      = tss;
+    struct ts_node      *node   = 0;
+    struct ts_node      *node2  = 0;
+    if(!t) return false;
+    // _MESSAGE_OUT("============================\n");
+    for(node = t->lr; node ; node = node->ln)
+    {
+        struct tcp_stream   *ts = &(node->tstream);
+        // _MESSAGE_OUT("%-15s : %u ---> ", _netint32toip(ts->client_ip), _ntoh16(ts->client_port));
+        // _MESSAGE_OUT("%-15s : %u\n", _netint32toip(ts->server_ip), _ntoh16(ts->server_port));
+        // _MESSAGE_OUT("node : %p node->ln : %p\n", node, node->ln);
+        for(node2 = node->ln; node2 ; node2 = node2->ln)
+        {
+            // _MESSAGE_OUT("\tnode2 : %p node2->ln : %p\n", node2, node2->ln);
+            struct tcp_stream   *ts2 = &(node2->tstream);
+            if(ts_equal(ts, ts2))
+            {
+                _MESSAGE_OUT("wtf?????????????????\n");
+            }
+        }
+    }
+#endif
+
     return do_tss_search((struct ts_storage*)tss, pi) ? true : false;
 }
 

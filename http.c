@@ -68,13 +68,18 @@ tcp_checksum(void *pi)
 }
 
 
+
+int one_shot_init(void *pi);
+
+void    *tss    = 0;
+
+int (*http_handle_fun)(void*) = one_shot_init;
+
+
 int
-http(void *pi)
+http_handler(void *pi)
 {
     unsigned char   *http   = get_http_ptr(pi);
-    static void*    tss    = 0;
-    if(0 == tss) tss = tss_create();
-
 #if 1
     if(tss_search(tss, pi))
     {
@@ -105,3 +110,23 @@ http(void *pi)
 
     return PKT_ACCEPT;
 }
+
+
+int
+one_shot_init(void *pi)
+{
+    http_handle_fun = http_handler;
+
+    // _MESSAGE_OUT("===========================one shot init!!!!!\n");
+    while(!tss) tss = tss_create();
+
+    return (*http_handle_fun)(pi);
+}
+
+
+int
+http(void *pi)
+{
+    return (*http_handle_fun)(pi);
+}
+
