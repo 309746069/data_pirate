@@ -203,8 +203,7 @@ ht_search(struct ts_storage *tss, struct tcp_stream *ts)
 
     iter    = tss->ht[hi];
     // hash list not empty
-    while( !ts_equal(&(iter->tstream), ts)
-            && iter)
+    while( iter && !ts_equal(&(iter->tstream), ts) )
         iter    = iter->hn;
 
     return iter ? &(iter->tstream) : 0;
