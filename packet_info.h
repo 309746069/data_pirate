@@ -8,6 +8,12 @@ pi_create(  unsigned char   *packet,
             unsigned int    pkt_len,
             struct timeval  *cap_time);
 
+void*
+pi_create_empty(void);
+
+void*
+pi_clone(void *pi);
+
 int
 pi_set_pkt_len(void *pi, unsigned int len);
 
@@ -43,4 +49,10 @@ get_http_ptr(void *pi);
 
 unsigned int
 get_http_hdr_len(void *pi);
+
+void
+ip_checksum(void *pi);
+
+void
+tcp_checksum(void *pi);
 

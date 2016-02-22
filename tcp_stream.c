@@ -15,6 +15,9 @@ struct tcp_stream
     unsigned short  client_port;
     unsigned int    server_ip;
     unsigned short  server_port;
+
+    unsigned int    s2c_insert_data_size;
+    unsigned int    s2c_insert_start_seq;
 };
 
 struct ts_node
@@ -290,6 +293,40 @@ tss_search(void *tss, void *pi)
 
     return do_tss_search((struct ts_storage*)tss, pi) ? true : false;
 }
+
+
+unsigned int
+tss_add_s2c_data_size(void *tss, void *pi, unsigned int add_data_size)
+{
+    struct tcp_stream   *ts = do_tss_search(tss, pi);
+    if(0 == ts) return false;
+
+    ts->s2c_insert_start_seq    = _ntoh32(get_tcp_hdr(pi)->seq);
+
+    ts->s2c_insert_data_size    = add_data_size;
+    return true;
+}
+
+
+unsigned int
+tss_s2c_data_size(void *tss, void *pi)
+{
+    struct tcp_stream   *ts = do_tss_search(tss, pi);
+
+    return ts ? ts->s2c_insert_data_size : 0;
+}
+
+
+unsigned int
+tss_s2c_insert_start_seq(void *tss, void *pi)
+{
+    struct tcp_stream   *ts = do_tss_search(tss, pi);
+
+    return ts ? ts->s2c_insert_start_seq : 0;
+}
+
+
+
 
 
 
