@@ -11,7 +11,8 @@ OBJECT=main.o \
        packet_info.o \
        gzip_wrapper.o \
        tcp_stream.o \
-       stalker.o
+       stalker.o \
+       rapist.o
        
 TARGET=data_pirate
 LIB= -lpcap -lnet -lpthread -lz

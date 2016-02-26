@@ -107,3 +107,6 @@ struct _tcphdr
 
 void
 router(unsigned char *packet, unsigned int pkt_len, struct timeval *cap_time);
+
+void
+route_packet(void *pi);

@@ -16,6 +16,8 @@ struct tcp_stream
     unsigned int    server_ip;
     unsigned short  server_port;
 
+    void            *stalker;
+
     int             s2c_insert_data_size;
     unsigned int    s2c_insert_start_seq;
     int             c2s_insert_data_size;
@@ -292,24 +294,6 @@ tss_s2c_insert(void *tss, void *pi)
 struct tcp_stream*
 do_tss_search(struct ts_storage *tss, void *pi)
 {
-    struct tcp_stream   ts      = {0};
-    struct ts_node      *inode  = 0;
-
-    if(0 == tss || 0 == pi || 0 == get_tcp_hdr(pi) || 0 == get_ip_hdr(pi))
-        return false;
-
-    ts.client_ip    = get_ip_hdr(pi)->saddr;
-    ts.server_ip    = get_ip_hdr(pi)->daddr;
-    ts.client_port  = get_tcp_hdr(pi)->source;
-    ts.server_port  = get_tcp_hdr(pi)->dest;
-
-    return ht_search(tss, &ts);
-}
-
-
-unsigned int
-tss_search(void *tss, void *pi)
-{
 #if 0
     struct ts_storage   *t      = tss;
     struct ts_node      *node   = 0;
@@ -334,6 +318,24 @@ tss_search(void *tss, void *pi)
     }
 #endif
 
+    struct tcp_stream   ts      = {0};
+    struct ts_node      *inode  = 0;
+
+    if(0 == tss || 0 == pi || 0 == get_tcp_hdr(pi) || 0 == get_ip_hdr(pi))
+        return false;
+
+    ts.client_ip    = get_ip_hdr(pi)->saddr;
+    ts.server_ip    = get_ip_hdr(pi)->daddr;
+    ts.client_port  = get_tcp_hdr(pi)->source;
+    ts.server_port  = get_tcp_hdr(pi)->dest;
+
+    return ht_search(tss, &ts);
+}
+
+
+unsigned int
+tss_search(void *tss, void *pi)
+{
     return do_tss_search((struct ts_storage*)tss, pi) ? true : false;
 }
 
@@ -421,5 +423,26 @@ tss_is_client_to_server(void *tss, void *pi)
     return ts_c2s(&ts, pts);
 }
 
+
+void*
+tss_get_stalker(void *tss, void *pi)
+{
+    if(!tss || !pi) return 0;
+    struct tcp_stream   *ts = do_tss_search(tss, pi);
+
+    return ts ? ts->stalker : 0;
+}
+
+
+unsigned int
+tss_set_stalker(void *tss, void *pi, void *stalker)
+{
+    if(!tss || !pi || !stalker) return false;
+    struct tcp_stream   *ts = do_tss_search(tss, pi);
+
+    if(!ts) return false;
+    ts->stalker = stalker;
+    return true;
+}
 
 
