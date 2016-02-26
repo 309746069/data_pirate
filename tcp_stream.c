@@ -16,8 +16,10 @@ struct tcp_stream
     unsigned int    server_ip;
     unsigned short  server_port;
 
-    unsigned int    s2c_insert_data_size;
+    int             s2c_insert_data_size;
     unsigned int    s2c_insert_start_seq;
+    int             c2s_insert_data_size;
+    unsigned int    c2s_insert_start_seq;
 };
 
 struct ts_node
@@ -41,9 +43,30 @@ struct ts_storage
 };
 
 
-int
+unsigned int
+ts_c2s(struct tcp_stream *ts1, struct tcp_stream *ts2)
+{
+    return      (ts1->client_port   == ts2->client_port)
+            &&  (ts1->server_ip     == ts2->server_ip)
+            &&  (ts1->client_ip     == ts2->client_ip)
+            &&  (ts1->server_port   == ts2->server_port);
+}
+
+
+unsigned int
+ts_s2c(struct tcp_stream *ts1, struct tcp_stream *ts2)
+{
+    return      (ts1->client_port   == ts2->server_port)
+            &&  (ts1->server_ip     == ts2->client_ip)
+            &&  (ts1->client_ip     == ts2->server_ip)
+            &&  (ts1->server_port   == ts2->client_port);
+}
+
+
+unsigned int
 ts_equal(struct tcp_stream *ts1, struct tcp_stream *ts2)
 {
+#if 0
     return 
            (    (ts1->client_port   == ts2->client_port)
             &&  (ts1->server_ip     == ts2->server_ip)
@@ -54,6 +77,9 @@ ts_equal(struct tcp_stream *ts1, struct tcp_stream *ts2)
             &&  (ts1->server_ip     == ts2->client_ip)
             &&  (ts1->client_ip     == ts2->server_ip)
             &&  (ts1->server_port   == ts2->client_port) );
+#else
+    return ts_s2c(ts1, ts2) || ts_c2s(ts1, ts2);
+#endif
 }
 
 
@@ -214,7 +240,7 @@ ht_search(struct ts_storage *tss, struct tcp_stream *ts)
 
 
 unsigned int
-do_tss_insert(struct ts_storage *tss, void *pi)
+do_tss_insert(struct ts_storage *tss, void *pi, unsigned int is_c2s)
 {
     struct tcp_stream   ts      = {0};
     struct ts_node      *inode  = 0;
@@ -222,10 +248,20 @@ do_tss_insert(struct ts_storage *tss, void *pi)
     if(0 == tss || 0 == pi || 0 == get_tcp_hdr(pi) || 0 == get_ip_hdr(pi))
         return false;
 
-    ts.client_ip    = get_ip_hdr(pi)->saddr;
-    ts.server_ip    = get_ip_hdr(pi)->daddr;
-    ts.client_port  = get_tcp_hdr(pi)->source;
-    ts.server_port  = get_tcp_hdr(pi)->dest;
+    if(is_c2s)
+    {
+        ts.client_ip    = get_ip_hdr(pi)->saddr;
+        ts.server_ip    = get_ip_hdr(pi)->daddr;
+        ts.client_port  = get_tcp_hdr(pi)->source;
+        ts.server_port  = get_tcp_hdr(pi)->dest;
+    }
+    else
+    {
+        ts.client_ip    = get_ip_hdr(pi)->daddr;
+        ts.server_ip    = get_ip_hdr(pi)->saddr;
+        ts.client_port  = get_tcp_hdr(pi)->dest;
+        ts.server_port  = get_tcp_hdr(pi)->source;
+    }
 
     // alread in the storage
     if(ht_search(tss, &ts)) return false;
@@ -240,9 +276,16 @@ do_tss_insert(struct ts_storage *tss, void *pi)
 
 
 unsigned int
-tss_insert(void *tss, void *pi)
+tss_c2s_insert(void *tss, void *pi)
 {
-    return do_tss_insert((struct ts_storage*)tss, pi);
+    return do_tss_insert((struct ts_storage*)tss, pi, true);
+}
+
+
+unsigned int
+tss_s2c_insert(void *tss, void *pi)
+{
+    return do_tss_insert((struct ts_storage*)tss, pi, false);
 }
 
 
@@ -272,22 +315,22 @@ tss_search(void *tss, void *pi)
     struct ts_node      *node   = 0;
     struct ts_node      *node2  = 0;
     if(!t) return false;
-    // _MESSAGE_OUT("============================\n");
+    _MESSAGE_OUT("============================\n");
     for(node = t->lr; node ; node = node->ln)
     {
         struct tcp_stream   *ts = &(node->tstream);
-        // _MESSAGE_OUT("%-15s : %u ---> ", _netint32toip(ts->client_ip), _ntoh16(ts->client_port));
-        // _MESSAGE_OUT("%-15s : %u\n", _netint32toip(ts->server_ip), _ntoh16(ts->server_port));
+        _MESSAGE_OUT("%-15s : %u ---> ", _netint32toip(ts->client_ip), _ntoh16(ts->client_port));
+        _MESSAGE_OUT("%-15s : %u\n", _netint32toip(ts->server_ip), _ntoh16(ts->server_port));
         // _MESSAGE_OUT("node : %p node->ln : %p\n", node, node->ln);
-        for(node2 = node->ln; node2 ; node2 = node2->ln)
-        {
-            // _MESSAGE_OUT("\tnode2 : %p node2->ln : %p\n", node2, node2->ln);
-            struct tcp_stream   *ts2 = &(node2->tstream);
-            if(ts_equal(ts, ts2))
-            {
-                _MESSAGE_OUT("wtf?????????????????\n");
-            }
-        }
+        // for(node2 = node->ln; node2 ; node2 = node2->ln)
+        // {
+        //     // _MESSAGE_OUT("\tnode2 : %p node2->ln : %p\n", node2, node2->ln);
+        //     struct tcp_stream   *ts2 = &(node2->tstream);
+        //     if(ts_equal(ts, ts2))
+        //     {
+        //         _MESSAGE_OUT("wtf?????????????????\n");
+        //     }
+        // }
     }
 #endif
 
@@ -296,19 +339,19 @@ tss_search(void *tss, void *pi)
 
 
 unsigned int
-tss_add_s2c_data_size(void *tss, void *pi, unsigned int add_data_size)
+tss_s2c_insert_data_size(void *tss, void *pi, int insert_data_size)
 {
     struct tcp_stream   *ts = do_tss_search(tss, pi);
     if(0 == ts) return false;
 
     ts->s2c_insert_start_seq    = _ntoh32(get_tcp_hdr(pi)->seq);
 
-    ts->s2c_insert_data_size    = add_data_size;
+    ts->s2c_insert_data_size    = insert_data_size;
     return true;
 }
 
 
-unsigned int
+int
 tss_s2c_data_size(void *tss, void *pi)
 {
     struct tcp_stream   *ts = do_tss_search(tss, pi);
@@ -326,7 +369,57 @@ tss_s2c_insert_start_seq(void *tss, void *pi)
 }
 
 
+unsigned int
+tss_c2s_insert_data_size(void *tss, void *pi, int insert_data_size)
+{
+    struct tcp_stream   *ts = do_tss_search(tss, pi);
+    if(0 == ts) return false;
 
+    ts->c2s_insert_start_seq    = _ntoh32(get_tcp_hdr(pi)->seq);
+
+    ts->c2s_insert_data_size    = insert_data_size;
+    return true;
+}
+
+
+int
+tss_c2s_data_size(void *tss, void *pi)
+{
+    struct tcp_stream   *ts = do_tss_search(tss, pi);
+
+    return ts ? ts->c2s_insert_data_size : 0;
+}
+
+
+unsigned int
+tss_c2s_insert_start_seq(void *tss, void *pi)
+{
+    struct tcp_stream   *ts = do_tss_search(tss, pi);
+
+    return ts ? ts->c2s_insert_start_seq : 0;
+}
+
+
+unsigned int
+tss_is_client_to_server(void *tss, void *pi)
+{
+    struct tcp_stream   ts      = {0};
+    struct tcp_stream   *pts    = 0;
+    struct ts_node      *inode  = 0;
+
+    if(0 == tss || 0 == pi || 0 == get_tcp_hdr(pi) || 0 == get_ip_hdr(pi))
+        return false;
+
+    pts = do_tss_search(tss, pi);
+
+    if(0 == pts) return false;
+    ts.client_ip    = get_ip_hdr(pi)->saddr;
+    ts.server_ip    = get_ip_hdr(pi)->daddr;
+    ts.client_port  = get_tcp_hdr(pi)->source;
+    ts.server_port  = get_tcp_hdr(pi)->dest;
+
+    return ts_c2s(&ts, pts);
+}
 
 
 

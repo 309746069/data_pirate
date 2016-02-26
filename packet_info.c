@@ -55,7 +55,7 @@ pi_clone(void *pi)
     void    *npi    = pi_create_empty();
 
     if(npi)
-        memcpy(npi, pi, get_pkt_len(pi));
+        memcpy(npi, pi, sizeof(struct packet_info));
 
     return npi;
 }

@@ -239,8 +239,8 @@ main(const int argc, const char* argv[])
 
 #else
 
-#define TARGET_IP       "192.168.1.9"
-// #define TARGET_IP2      "192.168.1.104"
+#define TARGET_IP       "192.168.1.124"
+// #define TARGET_IP2      "192.168.1.127"
 
     do{
         cheater_scan();
