@@ -7,6 +7,10 @@
 #define ___LOG_CLEAN__
 #define __LITTLE_ENDIAN_BITFIELD
 
+#if defined(__linux) || defined(linux)
+    #define _NO_STRNSTR
+#endif
+
 #ifndef ___MODULE_NAME
     #define ___MODULE_NAME              "data_pirate"
 #endif
@@ -60,6 +64,12 @@ net_state_init( const unsigned char*,
                 const unsigned int,
                 const unsigned int,
                 const unsigned int);
+
+#ifdef _NO_STRNSTR
+char*
+strnstr(char* s1, char* s2, int pos1);
+#endif
+
 
 
 

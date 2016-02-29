@@ -1,10 +1,30 @@
 #include "common.h"
 
 #include <stdio.h>
+#include <string.h>
 
+#ifdef _NO_STRNSTR
 
+char*
+strnstr(char* s1, char* s2, int pos1)
+{
+    int l1, l2;
+    l2 = strlen(s2);
+    if (!l2)
+        return (char *)s1;
+    l1 = strlen(s1);
+    pos1 = (pos1 > s1)?s1:pos1;
+    while (pos1 >= l2)
+    {
+        pos1--;
+        if (!memcmp(s1, s2, l2))
+            return (char *)s1;
+        s1++;
+    }
+    return NULL;
+}
+#endif
 
-void    *arpqueue   = 0;
 
 // // fake Duff's Device
 // void

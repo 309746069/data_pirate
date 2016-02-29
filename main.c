@@ -9,13 +9,32 @@
 #include "net_state.h"
 #include "gzip_wrapper.h"
 
-#define INTERFACE   "en0"
+
+#define TARGET_ONLY
+
+#if defined(__linux) || defined(linux)
+    #define INTERFACE       "eno16777736"
+    #define ROUTE_IP        "192.168.0.1"//"172.16.234.2"
+    #define TARGET_IP       "192.168.0.100"//"172.16.234.129"
+    // #define TARGET_IP2      "192.168.1.127"
+#else
+    #define INTERFACE       "en0"
+    #define ROUTE_IP        "192.168.0.1"
+    #define TARGET_IP       "192.168.0.104"
+    // #define TARGET_IP2      "192.168.0.1"
+
+#endif
 
 
 unsigned char*
 get_my_ip_address(unsigned char* card_name)
 {
-    unsigned char   *f  = "ifconfig %s | grep -e \"inet\\b\" | awk '{print $2}'";
+    unsigned char   *f  = 
+#if defined(__linux) || defined(linux)
+    "ifconfig %s | grep -e \"inet\\b\" | awk '{print $2}' | awk -F \":\" '{print $2}'";
+#else
+    "ifconfig %s | grep -e \"inet\\b\" | awk '{print $2}'";
+#endif
     static unsigned char    ret[1024]   = {0};
     sprintf(ret, f, card_name);
     FILE*   fp  = popen(ret, "r");
@@ -27,7 +46,12 @@ get_my_ip_address(unsigned char* card_name)
 unsigned char*
 get_my_eth_address(unsigned char* card_name)
 {
-    unsigned char   *f  = "ifconfig %s | grep -e \"ether\\b\" | awk '{print $2}'";
+    unsigned char   *f  =
+#if defined(__linux) || defined(linux)
+    "ifconfig %s | grep -e \"HWaddr\\b\" | awk '{print $5}'";
+#else
+    "ifconfig %s | grep -e \"ether\\b\" | awk '{print $2}'";
+#endif
     unsigned char   buf[1024]   = {0};
     static unsigned char   mac[8]      = {0};
     sprintf(buf, f, card_name);
@@ -46,13 +70,22 @@ unsigned int
 get_my_net_mask(unsigned char* card_name)
 {
     unsigned int    netmask = 0;
-    unsigned char   *f  = "ifconfig %s | grep -e \"netmask\" | awk '{print $4}'";
+    unsigned char   *f  =
+#if defined(__linux) || defined(linux)
+    "ifconfig %s | grep -e \"inet\\b\" | awk '{print $4}' | awk -F \":\" '{print $2}'";
+#else
+    "ifconfig %s | grep -e \"netmask\" | awk '{print $4}'";
+#endif
     unsigned char   buf[1024]   = {0};
     sprintf(buf, f, card_name);
     FILE*   fp  = popen(buf, "r");
     fgets(buf, 1024, fp);
     pclose(fp);
+#if defined(__linux) || defined(linux)
+    netmask = _ntoh32(_iptonetint32(buf));
+#else
     sscanf(buf, "0x%08x", &netmask);
+#endif
 
     return netmask;
 }
@@ -90,7 +123,7 @@ initialize(const int argc, const char* argv[])
                                 get_my_eth_address(INTERFACE),
                                 _iptonetint32(get_my_ip_address(INTERFACE)),
                                 _ntoh32(get_my_net_mask(INTERFACE)),
-                                _iptonetint32("192.168.1.1")) )
+                                _iptonetint32(ROUTE_IP)) )
     {
         return false;
     }
@@ -187,41 +220,15 @@ main(const int argc, const char* argv[])
     char*       perr    = 0;
     char        buf[1024]   = {0};
 
-#if 0
-
-
-    unsigned char   *test       = "<script>alert(\"fuck this\")</script>";
-    unsigned char   dec[1000]   = {0};
-    unsigned int    test_len    = strlen(test);
-    unsigned int    retlen      = 1000;
-
-    printf("test_len : %u \n", test_len);
-    if(0 == gzcompress(test, test_len, dec, &retlen))
-    {
-        printf("test_len : %u\tretlen : %u\n", test_len, retlen);
-    }
-
-    test_len = 1000 - retlen;
-    if(0 == gzdecompress(dec, retlen, dec + retlen, &test_len))
-    {
-        printf("%s\n", dec + retlen);
-    }
-
-
-
-    return 0;
-
-
-#endif
-
 
     if(false == initialize(argc, argv))
     {
         return -1;
     }
     // while(1) sleep(1),send_pkt();exit(0);
+
     cheater_start();
-#if 0
+#ifndef TARGET_IP
     int i=5;
     while(i--){ cheater_scan(); sleep(1);}
     unsigned char   target_ip[100]  = {0};
@@ -238,11 +245,19 @@ main(const int argc, const char* argv[])
 
 #else
 
-#define TARGET_IP       "192.168.1.124"
-// #define TARGET_IP2      "192.168.1.127"
-
     do{
+#if !defined(TARGET_ONLY)
         cheater_scan();
+#else
+        cheater_arp_request_broadcast_sender(my_mac_address(),
+                 _iptonetint32(ROUTE_IP), my_ip_netint32());
+        cheater_arp_request_broadcast_sender(my_mac_address(),
+                 _iptonetint32(TARGET_IP), my_ip_netint32());
+#ifdef TARGET_IP2
+        cheater_arp_request_broadcast_sender(my_mac_address(),
+                 _iptonetint32(TARGET_IP2), my_ip_netint32());
+#endif
+#endif
         sleep(1);
     }while(!is_device_online(_iptonetint32(TARGET_IP))
 #ifdef TARGET_IP2

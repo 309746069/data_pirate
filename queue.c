@@ -92,8 +92,12 @@ node_malloc(struct message_queue *queue)
 void
 node_free(struct list_node *node)
 {
-    free(node->buf);
-    free(node);
+    if(node)
+    {
+        if(node->buf)
+            free(node->buf);
+        free(node);
+    }
 }
 
 

@@ -9,6 +9,17 @@
 #include "packet_info.h"
 
 
+// target mac check
+int
+is_sent_to_us(unsigned char *packet, unsigned int pkt_len)
+{
+    if(!packet || !pkt_len) return false;
+    struct _ethhdr  *eth    = (struct _ethhdr*)packet;
+
+    return memcmp(my_mac_address(), eth->h_dest, 6) ? false : true;
+}
+
+
 
 int
 is_our_packet(unsigned char *packet, unsigned int pkt_len)
@@ -100,6 +111,13 @@ route_packet(void *pi)
 void
 router(unsigned char *packet, unsigned int pkt_len, struct timeval *cap_time)
 {
+    // mac check
+    // vmware NAT problem
+    if(false == is_sent_to_us(packet, pkt_len))
+    {
+        return;
+    }
+    // ip check
     if(false == is_our_packet(packet, pkt_len))
     {
         return;
@@ -109,13 +127,21 @@ router(unsigned char *packet, unsigned int pkt_len, struct timeval *cap_time)
     {
         return;
     }
-
+#if 1
+    if(pkt_len > PACKET_BUFSIZE)
+    {
+        struct _iphdr   *ip = packet + sizeof(struct _ethhdr);
+        _MESSAGE_OUT("pkt_len : %5u ip->tot_len : %5u\n", pkt_len, ip->tot_len);
+        return;
+    }
+#endif
     void    *pi = pi_create(packet, pkt_len, cap_time);
 
     if(PKT_STOLEN == http(pi))
     {
         return;
     }
+
 
     route_packet(pi);
     pi_destory(pi);
