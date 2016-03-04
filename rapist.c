@@ -8,6 +8,7 @@
 #include "stalker.h"
 #include "router.h"
 #include "tcp_stream.h"
+#include "tcp_sender.h"
 
 
 unsigned int rapist_one_shot_init(void *pi);
@@ -64,111 +65,9 @@ get_uri_from_pi(void *pi, unsigned char *retbuf, unsigned int bufsize)
 }
 
 
-// in stalker thread ===========================================================
-unsigned int
-comfort_my_baby(void *pi)
+void
+uri_logout(void *pi)
 {
-    int             c2s_offset  = 0;
-    int             s2c_offset  = 0;
-    unsigned int    abs_offset  = 0;
-    unsigned int    start_seq   = 0;
-    unsigned int    seq_tmp     = 0;
-    unsigned int    is_c2s      = tss_is_client_to_server(tss, pi);
-    struct _tcphdr  *tcp        = get_tcp_hdr(pi);
-
-    if(0 == tcp) return false;
-
-    // client to server data insert fix
-    c2s_offset = tss_c2s_data_size(tss, pi);
-    if(0 != c2s_offset)
-    {
-        abs_offset  = abs(c2s_offset);
-        start_seq   = tss_c2s_insert_start_seq(tss, pi);
-        // fix
-        // client to server
-        if(is_c2s)
-        {
-            seq_tmp = _ntoh32(tcp->seq);
-            if(seq_tmp > start_seq)
-            {
-                seq_tmp     = (   (c2s_offset > 0)
-                                ? (seq_tmp + abs_offset)
-                                : (seq_tmp - abs_offset) );
-                tcp->seq    = _ntoh32(seq_tmp);
-            }
-        }
-        // server to client
-        else
-        {
-            seq_tmp = _ntoh32(tcp->ack_seq);
-            if(seq_tmp > start_seq)
-            {
-                seq_tmp         = (   (c2s_offset > 0)
-                                    ? (seq_tmp - abs_offset)
-                                    : (seq_tmp + abs_offset) );
-                tcp->ack_seq    = _ntoh32(seq_tmp);
-            }
-        }
-    }
-
-
-    // server to client data insert fix
-    s2c_offset = tss_s2c_data_size(tss, pi);
-    if(0 != s2c_offset)
-    {
-        // _MESSAGE_OUT("s2c_offset : %d", s2c_offset);
-        abs_offset  = abs(s2c_offset);
-        start_seq   = tss_s2c_insert_start_seq(tss, pi);
-        // fix
-        // client to server
-        if(is_c2s)
-        {
-            seq_tmp = _ntoh32(tcp->ack_seq);
-            // _MESSAGE_OUT("client to server : fix ack_seq %10u", seq_tmp);
-
-            // todo : when seq overflow, stream will crash
-            if(seq_tmp > start_seq)
-            {
-                seq_tmp         = (   (s2c_offset > 0)
-                                    ? (seq_tmp - abs_offset)
-                                    : (seq_tmp + abs_offset) );
-                tcp->ack_seq    = _ntoh32(seq_tmp);
-            }
-            // _MESSAGE_OUT(" to %10u\n", seq_tmp);
-        }
-        // server to client
-        else
-        {
-            seq_tmp = _ntoh32(tcp->seq);
-            // _MESSAGE_OUT("server to client : fix seq %10u", seq_tmp);
-
-            // todo : when seq overflow, stream will crash
-            if(seq_tmp > start_seq)
-            {
-                seq_tmp     = (   (s2c_offset > 0)
-                                ? (seq_tmp + abs_offset)
-                                : (seq_tmp - abs_offset) );
-                tcp->seq    = _ntoh32(seq_tmp);
-            }
-            // _MESSAGE_OUT(" to %10u\n", seq_tmp);
-        }
-    }
-
-    if(s2c_offset || c2s_offset)
-    {
-        tcp_checksum(pi);
-    }
-
-    return true;
-}
-
-
-unsigned int
-stalker_callback(void *si, void *pi)
-{
-    // comfort_my_baby(pi);
-
-    // http_hdr_logout(pi);
     unsigned char   uri[PACKET_BUFSIZE] = {0};
     unsigned int    uri_len = get_uri_from_pi(pi, uri, PACKET_BUFSIZE);
     if(uri_len
@@ -182,7 +81,30 @@ stalker_callback(void *si, void *pi)
 // #endif
         )
         _MESSAGE_OUT("%s\n", uri);
+}
 
+
+// in stalker thread ===========================================================
+unsigned int
+stalker_callback(void *si, void *pi)
+{
+
+    // uri_logout(pi);
+#define IP99999999_TEST
+#ifdef IP99999999_TEST
+    if(_iptonetint32("99.99.99.99") == get_ip_hdr(pi)->daddr)
+    {
+        void *tr    = stalker_get_exptr(si);
+        if(!tr)
+        {
+            tr= tr_create();
+            stalker_set_exptr(si, tr);
+        }
+        tr_receive(tr, pi);
+        http_hdr_logout(pi);
+        return true;
+    }
+#endif
 
     route_packet(pi);
     pi_destory(pi);
@@ -210,6 +132,7 @@ follow_this_beauty(void *pi)
     return false;
 }
 
+
 unsigned int
 fuck_my_baby(void *si, void *pi)
 {
@@ -227,12 +150,17 @@ is_my_girl(void *pi)
 unsigned int
 i_wanna_fuck_this_beauty(void *pi)
 {
-    // unsigned char   *http   = get_http_ptr(pi);
-    // unsigned int    hdr_len = get_http_hdr_len(pi);
- 
-    // if(0 == http || 0 == hdr_len) return false;
+#ifdef IP99999999_TEST
+    return _iptonetint32("99.99.99.99") == get_ip_hdr(pi)->daddr;
+#endif
 
-    return true;
+    struct _tcphdr  *tcp    = get_tcp_hdr(pi);
+    if(!tcp) return false;
+
+    if(tcp->syn && !tcp->ack)
+        return true; 
+    else
+        return false;
 }
 
 

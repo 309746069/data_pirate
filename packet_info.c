@@ -254,6 +254,24 @@ tcp_checksum(void *pi)
 }
 
 
+unsigned char*
+get_tcp_opt_ptr(void *pi)
+{
+    if(!pi) return 0;
+    struct _tcphdr  *tcp    = get_tcp_hdr(pi);
+    if(tcp && tcp->doff*4 > sizeof(struct _tcphdr))
+        return (unsigned char*)tcp + sizeof(struct _tcphdr);
+    else
+        return 0;
+}
 
+
+unsigned int
+get_tcp_opt_len(void *pi)
+{
+    if(!pi) return 0;
+    struct _tcphdr  *tcp    = get_tcp_hdr(pi);
+    return tcp ? tcp->doff*4 - sizeof(struct _tcphdr) : 0;
+}
 
 

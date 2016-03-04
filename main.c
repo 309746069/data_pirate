@@ -155,63 +155,6 @@ initialize(const int argc, const char* argv[])
 }
 
 
-void
-send_pkt(void)
-{
-    static unsigned short    i =0;
-    unsigned char   pkt[1400]   = {0};
-    unsigned int    psize       = sizeof(pkt)/sizeof(*pkt);
-    struct _ethhdr  *eth        = pkt;
-    struct _iphdr   *ip         = pkt + sizeof(struct _ethhdr);
-    struct _tcphdr  *tcp        = 0;
-    unsigned char   *http       = 0;
-
-    memcpy(eth->h_dest, "\x22\x22\x22\x22\x22\x22", 6);
-    memcpy(eth->h_source, my_mac_address(), 6);
-    eth->h_proto    = _ntoh16(_ETH_P_IP);
-
-    ip->ihl         = 20/4;
-    ip->version     = 4;
-    ip->tos         = 0;
-    ip->tot_len     = _ntoh16(psize - sizeof(struct _ethhdr));
-    ip->id          = _ntoh16(i++);
-    ip->frag_off    = 0;
-    ip->ttl         = 64;
-    ip->protocol    = _IPPROTO_TCP;
-    ip->check       = 0;
-    ip->saddr       = _iptonetint32("110.110.110.110");
-    ip->daddr       = _iptonetint32("192.168.1.9");
-
-    tcp     = (unsigned char*)ip + ip->ihl * 4;
-
-    tcp->source     = _ntoh16(123);
-    tcp->dest       = _ntoh16(80);
-    tcp->seq        = 0;
-    tcp->ack_seq    = 0;
-    tcp->res1       = 0;
-    tcp->doff       = 20/4;
-
-    tcp->fin        = 0;
-    tcp->syn        = 1;
-    tcp->rst        = 0;
-    tcp->psh        = 0;
-    tcp->ack        = 0;
-    tcp->urg        = 0;
-    tcp->ece        = 0;
-    tcp->cwr        = 0;
-
-    tcp->window     = 64*1024;
-    tcp->check      = 0;
-    tcp->urg_ptr    = 0;
-
-    http    = (unsigned char*)tcp + tcp->doff * 4;
-    unsigned char   *str = "hands up and drop your weapon! you are under arrest!\r\n";
-    memcpy(http, str, strlen(str));
-
-    _SEND_PACKAGE(pkt, psize);
-}
-
-
 int
 main(const int argc, const char* argv[])
 {
@@ -225,7 +168,6 @@ main(const int argc, const char* argv[])
     {
         return -1;
     }
-    // while(1) sleep(1),send_pkt();exit(0);
 
     cheater_start();
 #ifndef TARGET_IP

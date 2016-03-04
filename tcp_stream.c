@@ -17,11 +17,6 @@ struct tcp_stream
     unsigned short  server_port;
 
     void            *stalker;
-
-    int             s2c_insert_data_size;
-    unsigned int    s2c_insert_start_seq;
-    int             c2s_insert_data_size;
-    unsigned int    c2s_insert_start_seq;
 };
 
 struct ts_node
@@ -337,68 +332,6 @@ unsigned int
 tss_search(void *tss, void *pi)
 {
     return do_tss_search((struct ts_storage*)tss, pi) ? true : false;
-}
-
-
-unsigned int
-tss_s2c_insert_data_size(void *tss, void *pi, int insert_data_size)
-{
-    struct tcp_stream   *ts = do_tss_search(tss, pi);
-    if(0 == ts) return false;
-
-    ts->s2c_insert_start_seq    = _ntoh32(get_tcp_hdr(pi)->seq);
-
-    ts->s2c_insert_data_size    = insert_data_size;
-    return true;
-}
-
-
-int
-tss_s2c_data_size(void *tss, void *pi)
-{
-    struct tcp_stream   *ts = do_tss_search(tss, pi);
-
-    return ts ? ts->s2c_insert_data_size : 0;
-}
-
-
-unsigned int
-tss_s2c_insert_start_seq(void *tss, void *pi)
-{
-    struct tcp_stream   *ts = do_tss_search(tss, pi);
-
-    return ts ? ts->s2c_insert_start_seq : 0;
-}
-
-
-unsigned int
-tss_c2s_insert_data_size(void *tss, void *pi, int insert_data_size)
-{
-    struct tcp_stream   *ts = do_tss_search(tss, pi);
-    if(0 == ts) return false;
-
-    ts->c2s_insert_start_seq    = _ntoh32(get_tcp_hdr(pi)->seq);
-
-    ts->c2s_insert_data_size    = insert_data_size;
-    return true;
-}
-
-
-int
-tss_c2s_data_size(void *tss, void *pi)
-{
-    struct tcp_stream   *ts = do_tss_search(tss, pi);
-
-    return ts ? ts->c2s_insert_data_size : 0;
-}
-
-
-unsigned int
-tss_c2s_insert_start_seq(void *tss, void *pi)
-{
-    struct tcp_stream   *ts = do_tss_search(tss, pi);
-
-    return ts ? ts->c2s_insert_start_seq : 0;
 }
 
 

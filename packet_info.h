@@ -56,3 +56,8 @@ ip_checksum(void *pi);
 void
 tcp_checksum(void *pi);
 
+unsigned char*
+get_tcp_opt_ptr(void *pi);
+
+unsigned int
+get_tcp_opt_len(void *pi);

@@ -31,6 +31,8 @@ struct stalker_info
     unsigned int        status;
 
     unsigned int (*thread_worker)(void *si, void *pi);
+
+    void                *exptr;
 };
 
 
@@ -111,7 +113,8 @@ thread_loop(struct stalker_info *si)
                 return false;
                 break;
             case S_NEW_PACKET:
-                (*(si->thread_worker))(si, *((void**)(cm->msg)) );
+                if(false == (*(si->thread_worker))(si, *((void**)(cm->msg)) ) )
+                    return false;
                 break;
             default:
                 break;
@@ -259,6 +262,19 @@ stalker_stop_until_no_msg(void *si)
     return do_wirte_end(si) && thread_wakeup(si);
 }
 
+
+unsigned int
+stalker_set_exptr(void *si, void *ptr)
+{
+    return si ? ((struct stalker_info*)si)->exptr = ptr : false;
+}
+
+
+void*
+stalker_get_exptr(void *si)
+{
+    return si ? ((struct stalker_info*)si)->exptr : 0;
+}
 
 
 
