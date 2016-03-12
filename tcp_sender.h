@@ -2,13 +2,10 @@
 
 
 void*
-tr_create_mitm(void *pi);
+tr_init_c2s(void *pi);
+
+void
+tr_destory(void *tr);
 
 unsigned int
-tr_receive_mitm(void *trp, void *pi);
-
-void
-tr_destory_mitm(void *trp);
-
-void
-tr_test(void *pi);
+tr_receive(void *tr, void *pi);

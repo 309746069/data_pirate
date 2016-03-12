@@ -90,33 +90,21 @@ uri_logout(void *pi)
 unsigned int
 stalker_callback(void *si, void *pi)
 {
-
     // uri_logout(pi);
-#define IP99999999_TEST
-#ifdef IP99999999_TEST
-    if(_iptonetint32("192.168.0.1") == get_ip_hdr(pi)->daddr)
-    {
-        void    *trp    = stalker_get_exptr(si);
-        if(!trp)
-        {
-            trp  = tr_create_mitm(pi);
-            stalker_set_exptr(si, trp);
-            return true;
-        }
-        tr_receive_mitm(trp, pi);
-        http_hdr_logout(pi);
-        return true;
-    }
-    if(_iptonetint32("192.168.0.1") == get_ip_hdr(pi)->saddr)
-    {
-        void    *trp    = stalker_get_exptr(si);
-        tr_receive_mitm(trp, pi);
-        return true;
-    }
-#endif
+    // http_hdr_logout(pi);
 
-    route_packet(pi);
-    pi_destory(pi);
+    void    *tr = stalker_get_exptr(si);
+    if(!tr)
+    {
+        struct _tcphdr  *tcp    = get_tcp_hdr(pi);
+        tr  = tr_init_c2s(pi);
+        if(!tr) return false;
+        stalker_set_exptr(si, tr);
+    }
+    tr_receive(tr, pi);
+
+    // route_packet(pi);
+    // pi_destory(pi);
     return true;
 }
 
@@ -159,18 +147,30 @@ is_my_girl(void *pi)
 unsigned int
 i_wanna_fuck_this_beauty(void *pi)
 {
-#ifdef IP99999999_TEST
-    return _iptonetint32("192.168.0.1") == get_ip_hdr(pi)->daddr 
-            || _iptonetint32("192.168.0.1") == get_ip_hdr(pi)->saddr;
+    unsigned char   *http   = get_http_ptr(pi);
+    unsigned int    tdl     = get_tcp_data_len(pi);
+
+    if(!http || !tdl) return false;
+    if(http - get_pkt_ptr(pi) + 4 >= tdl) return false;
+
+
+    if('G'==http[0] && 'E'==http[1] && 'T'==http[2] && ' '==http[3])
+    {
+#if 1
+        static int i = 0;
+        if(i) return false;
+        struct _tcphdr  *tcp    = get_tcp_hdr(pi);
+        struct _iphdr   *ip     = get_ip_hdr(pi);
+        _MESSAGE_OUT("Hook one ip test !!! switch in file : %s:%d\n",
+                            __FILE__, __LINE__ - 6);
+        _MESSAGE_OUT("=============\nip.addr == %s && tcp.port == %u\n",
+                            _netint32toip(ip->daddr), _ntoh16(tcp->source));
+        i = 1;
 #endif
+        return true;
+    }
 
-    struct _tcphdr  *tcp    = get_tcp_hdr(pi);
-    if(!tcp) return false;
-
-    if(tcp->syn && !tcp->ack)
-        return true; 
-    else
-        return false;
+    return false;
 }
 
 

@@ -8,6 +8,7 @@
 #include "router.h"
 #include "net_state.h"
 #include "rectifier.h"
+#include "queue.h"
 
 
 #define __EOL                   0
@@ -24,38 +25,33 @@
 
 struct tcp_state
 {
-    unsigned int    ip_ni32;
-    unsigned short  port_ni16;
+#define TCP_BUF_SIZE            1024*1024
+    unsigned char       send_buf[TCP_BUF_SIZE];
+    unsigned int        s_ptr;
+    unsigned char       receive_buf[TCP_BUF_SIZE];
+    unsigned int        r_ptr;
 
-    unsigned short  window;
-    unsigned int    start_seq;
-    unsigned int    seq;
-    unsigned int    ack_seq;
-
-    unsigned short  mss;
-    unsigned char   sack_perm;  // true or false
-    unsigned char   win_shift;
+    unsigned int        here_buf_start_seq;     // send start record
+    unsigned int        here_next_seq;          // send record
+    unsigned int        there_buf_start_seq;    // receive start record
+    unsigned int        there_next_seq;         // receive record
 };
-
 
 
 struct tcp_recorder
 {
-    struct tcp_state    here;   // us
-    struct tcp_state    there;  // target (client or server)
-#define HERE_WINDOW     0xffff
-#define HERE_WIN_SHIFT  5
-    unsigned short      ipid;
-    unsigned char       tmp[HERE_WINDOW<<HERE_WIN_SHIFT]; // 256k
-    unsigned char       here_is_server;
+    unsigned int        ser_ip_ni32;
+    unsigned short      ser_port_ni16;
+    unsigned short      ser_mss;
+
+    unsigned int        cli_ip_ni32;
+    unsigned short      cli_port_ni16;
+    unsigned short      cli_mss;
+
+    struct tcp_state    fake_cli,       // connect to server
+                        fake_ser;       // listen from client
 };
 
-
-struct tr_pair
-{
-    struct tcp_recorder *tr_server; // here is server
-    struct tcp_recorder *tr_client; // here is client
-};
 
 
 struct tcp_recorder*
@@ -83,26 +79,10 @@ tr_free(struct tcp_recorder *tr)
 
 
 void*
-tr_create(unsigned char here_is_server)
+tr_create(void)
 {
     struct tcp_recorder *tr = tr_malloc();
-    if(tr)
-        tr->here_is_server  = here_is_server;
     return tr;
-}
-
-
-void*
-tr_create_server(void)
-{
-    return tr_create(true);
-}
-
-
-void*
-tr_create_client(void)
-{
-    return tr_create(false);
 }
 
 
@@ -243,19 +223,42 @@ set_tcp_payload(unsigned char   *tdp,
 
 
 unsigned int
-send_tcp_pkt(   struct tcp_recorder *tr,
-                unsigned int        seq_add_offset,
-                unsigned int        ack_add_offset,
-                unsigned char       flags,
-                unsigned char       *tcp_payload,
-                unsigned int        pl_len,
-                unsigned char       *tcp_opt,
-                unsigned int        opt_len)
+do_send_tcp_pkt(// ethhdr
+                unsigned char   *dst_mac,
+                unsigned char   *src_mac,
+                // iphdr
+                unsigned short  ipid,
+                unsigned char   ttl,
+                unsigned int    dst_ip_ni32,
+                unsigned int    src_ip_ni32,
+                // tcphdr
+                unsigned short  dst_port_ni16,
+                unsigned short  src_port_ni16,
+                unsigned int    seq,
+                unsigned int    ack_seq,
+                unsigned char   flags,
+                unsigned short  window,
+                unsigned short  urg_ptr,
+                unsigned char   *tcp_opt,
+                unsigned char   opt_len,
+                // tcp data ptr
+                unsigned char   *tcp_payload,
+                unsigned int    pl_len
+                )
 {
-    if(!tr) return 0;
-    if(!tcp_payload && pl_len) return 0;
+// args check ------------------------------------------------------------------
+    // ethhdr check
+    if(!dst_mac || !src_mac) return 0;
+    // iphdr check
+    if(!dst_ip_ni32 || !src_ip_ni32) return 0;
+    ipid    = (ipid ? ipid : rand()%0xffff);
+    // tcphdr check
+    if(!dst_port_ni16 || !src_port_ni16 || !flags) return 0;
     if(!tcp_opt && opt_len) return 0;
+    // tcp payload check
+    if(!tcp_payload && pl_len) return 0;
 
+// local args declaration ------------------------------------------------------
     void            *pi     = pi_create_empty();
     unsigned char   *pkt    = get_pkt_ptr(pi);
     unsigned int    eth_len = sizeof(struct _ethhdr);
@@ -266,59 +269,65 @@ send_tcp_pkt(   struct tcp_recorder *tr,
 
     if(!pi || !pkt) goto failed_return;
 
+// set tcp payload -------------------------------------------------------------
     if(pl_len)
     {
-        ret_len = set_tcp_payload(pkt+eth_len+ip_len+tcp_len,
+        ret_len = set_tcp_payload(  pkt+eth_len+ip_len+tcp_len,
                                     tcp_payload, pl_len);
-        if(!ret_len) goto failed_return;
-        else pkt_len += ret_len;
+        if(!ret_len)
+            goto failed_return;
+        else
+            pkt_len += ret_len;
     }
 
-    tr->here.ack_seq    += ack_add_offset;
-
+// set tcp hdr -----------------------------------------------------------------
     ret_len = set_tcp_hdr(  pkt+eth_len+ip_len,
-                            _ntoh16(tr->here.port_ni16),
-                            _ntoh16(tr->there.port_ni16),
-                            tr->here.seq,
-                            tr->here.ack_seq,
+                            _ntoh16(src_port_ni16),
+                            _ntoh16(dst_port_ni16),
+                            seq,
+                            ack_seq,
                             tcp_len,
                             flags,
-                            tr->here.window,
-                            0,
+                            window,
+                            urg_ptr,
                             tcp_opt,
                             opt_len);
-    if(!ret_len) goto failed_return;
-    else pkt_len += ret_len;
+    if(!ret_len)
+        goto failed_return;
+    else
+        pkt_len += ret_len;
 
-    tr->here.seq        += seq_add_offset;
-
-    tr->ipid += rand()%(0xffff);
+// set ip hdr ------------------------------------------------------------------
     ret_len = set_ip_hdr(   pkt+eth_len,
                             pkt_len+ip_len,
-                            tr->ipid,
-                            0,
+                            ipid,
+                            ttl,
                             _IPPROTO_TCP,
-                            tr->here.ip_ni32,
-                            tr->there.ip_ni32);
-    if(!ret_len) goto failed_return;
-    else pkt_len += ret_len;
+                            src_ip_ni32,
+                            dst_ip_ni32);
+    if(!ret_len)
+        goto failed_return;
+    else
+        pkt_len += ret_len;
 
-    unsigned char   *target_mac = is_target_in_LAN(tr->there.ip_ni32)
-                                    ? device_mac_address(tr->there.ip_ni32)
-                                    : device_mac_address(route_ip_netint32());
+// set eth hdr -----------------------------------------------------------------
     ret_len = set_eth_hdr(  pkt,
-                            my_mac_address(),
-                            target_mac,
+                            src_mac,
+                            dst_mac,
                             _ETH_P_IP);
-    if(!ret_len) goto failed_return;
-    else pkt_len += ret_len;
+    if(!ret_len)
+        goto failed_return;
+    else
+        pkt_len += ret_len;
 
+// checksum & send -------------------------------------------------------------
     pi_set_pkt_len(pi, pkt_len);
     tcp_checksum(pi);
     ip_checksum(pi);
 
     _SEND_PACKAGE(get_pkt_ptr(pi), get_pkt_len(pi));
 
+// return ----------------------------------------------------------------------
 success_return:
     pi_destory(pi);
     return pkt_len;
@@ -328,199 +337,117 @@ failed_return:
 }
 
 
+unsigned int
+send_tcp_pkt(   unsigned int        dst_ip_ni32,
+                unsigned int        src_ip_ni32,
+                unsigned short      dst_port_ni16,
+                unsigned short      src_port_ni16,
+                unsigned int        seq,
+                unsigned int        ack_seq,
+                unsigned char       flags,
+                unsigned short      window,
+                unsigned char       *tcp_payload,
+                unsigned int        pl_len,
+                unsigned char       *tcp_opt,
+                unsigned char       opt_len)
+{
+    unsigned char   *dst_mac    = is_target_in_LAN(dst_ip_ni32)
+                                    ? device_mac_address(dst_ip_ni32)
+                                    : device_mac_address(route_ip_netint32());
+    return do_send_tcp_pkt( dst_mac,
+                            my_mac_address(),
+                            0,
+                            0,
+                            dst_ip_ni32,
+                            src_ip_ni32,
+                            dst_port_ni16,
+                            src_port_ni16,
+                            seq,
+                            ack_seq,
+                            flags,
+                            window,
+                            0,
+                            tcp_opt,
+                            opt_len,
+                            tcp_payload,
+                            pl_len);
+}
+
 
 unsigned int
-save_there_opt(struct tcp_recorder *tr, void *pi)
+tr_send_tcp_pkt(struct tcp_recorder *tr,
+                unsigned char       send_to_client,
+                unsigned int        send_len,
+                unsigned int        ack_len,
+                unsigned char       flags,
+                unsigned char       *tcp_payload,
+                unsigned int        pl_len)
 {
-    if(!tr || !pi) return false;
-    unsigned char   *opt    = get_tcp_opt_ptr(pi);
-    unsigned int    opt_len = get_tcp_opt_len(pi);
-    unsigned int    index   = 0;
+    unsigned int    dst_ip_ni32     = 0;
+    unsigned int    src_ip_ni32     = 0;
+    unsigned short  dst_port_ni16   = 0;
+    unsigned short  src_port_ni16   = 0;
+    unsigned int    seq             = 0;
+    unsigned int    ack_seq         = 0;
+    unsigned int    ret             = 0;
 
-    if(!opt || !opt_len) return false;
-
-    for(index=0; index<opt_len; )
+    if(send_to_client)
     {
-
-        if(__EOL == opt[index] || __NOP == opt[index])
-        {
-            index += 1;
-            continue;
-        }
-        switch(opt[index])
-        {
-            case __MSS:
-            {
-                unsigned short  mss_ni16    = 0;
-                memcpy(&mss_ni16, opt+index+2, 2);
-                unsigned short  mss_max     = 1494 - sizeof(struct _ethhdr)
-                                                - sizeof(struct _iphdr)
-                                                - sizeof(struct _tcphdr)
-                                                - 40;
-                tr->there.mss   = _ntoh16(mss_ni16) > mss_max
-                                    ? mss_max : _ntoh16(mss_ni16) ;
-                break;
-            }
-            case __WSOPT:
-                tr->there.win_shift = opt[index+2];
-                break;
-            case __SACK_PERMITTED:
-                tr->there.sack_perm = true;
-                break;
-            case __SACK_BLOCK:
-                break;
-            case __TSPOT:
-                break;
-            case __TCP_MD5:
-                break;
-            case __UTO:
-                break;
-            case __TCP_AO:
-                break;
-            default:
-                break;
-        }
-        index += opt[index+1];
+        dst_ip_ni32     = tr->cli_ip_ni32;
+        src_ip_ni32     = tr->ser_ip_ni32;
+        dst_port_ni16   = tr->cli_port_ni16;
+        src_port_ni16   = tr->ser_port_ni16;
+        seq             = tr->fake_ser.here_next_seq;
+        ack_seq         = tr->fake_ser.there_next_seq + ack_len;
+    }
+    else
+    {
+        dst_ip_ni32     = tr->ser_ip_ni32;
+        src_ip_ni32     = tr->cli_ip_ni32;
+        dst_port_ni16   = tr->ser_port_ni16;
+        src_port_ni16   = tr->cli_port_ni16;
+        seq             = tr->fake_cli.here_next_seq;
+        ack_seq         = tr->fake_cli.there_next_seq + ack_len;
     }
 
-    return true;
-}
+    ret = send_tcp_pkt( dst_ip_ni32,
+                        src_ip_ni32,
+                        dst_port_ni16,
+                        src_port_ni16,
+                        seq,
+                        ack_seq,
+                        flags,
+                        65535,
+                        tcp_payload,
+                        pl_len,
+                        0,
+                        0);
+    if(!ret) return 0;
 
-
-unsigned int
-save_there_tcp_state(struct tcp_recorder *tr, void *pi)
-{
-    if(!tr || !pi) return false;
-
-    struct _iphdr   *ip     = get_ip_hdr(pi);
-    struct _tcphdr  *tcp    = get_tcp_hdr(pi);
-
-    if(!ip || !tcp) return false;
-
-    if(false == save_there_opt(tr, pi)) return false;
-
-    tr->there.ip_ni32   = ip->saddr;
-    tr->there.port_ni16 = tcp->source;
-
-    tr->there.window    = _ntoh16(tcp->window);
-    tr->there.start_seq = _ntoh32(tcp->seq);
-    tr->there.seq       = _ntoh32(tcp->seq);
-    tr->there.ack_seq   = tcp->ack ? _ntoh32(tcp->ack_seq) : 0;
-
-    return true;
-}
-
-
-unsigned int
-init_here_tcp_state(struct tcp_recorder *tr,
-                    unsigned int        ip_ni32,
-                    unsigned short      port_ni16,
-                    unsigned int        ack_seq)
-{
-    if(!tr || !ip_ni32 || !port_ni16) return false;
-
-    tr->here.ip_ni32    = ip_ni32;
-    tr->here.port_ni16  = port_ni16;
-
-    tr->here.window     = HERE_WINDOW;
-    tr->here.start_seq  = rand()%0xffffffff;
-    tr->here.seq        = tr->here.start_seq;
-    tr->here.ack_seq    = ack_seq;
-
-    tr->here.mss        = 1494
-                            - sizeof(struct _ethhdr)
-                            - sizeof(struct _iphdr)
-                            - sizeof(struct _tcphdr)
-                            - 40;
-    tr->here.sack_perm  = true;
-    tr->here.win_shift  = HERE_WIN_SHIFT;
-
-    return true;
-}
-
-
-// opt_buf == 40 return real len
-unsigned int
-make_my_tcp_syn_opt(struct tcp_recorder *tr,
-                    unsigned char       *opt,
-                    unsigned int        opt_buf_len)
-{
-    if(!tr || !opt) return 0;
-    if(40 != opt_buf_len) return 0;
-
-    memset(opt, __NOP, opt_buf_len);
-    unsigned int    opt_len = 0;
-
-    if(tr->here.mss)
+    if(send_to_client)
     {
-        opt[opt_len]    = __MSS;
-        opt[opt_len+1]  = 4;
-        opt[opt_len+2]  = _ntoh16(tr->here.mss) & 0xff;
-        opt[opt_len+3]  = _ntoh16(tr->here.mss) >> 8 & 0xff;
-        opt_len         += 4;
+        tr->fake_ser.here_next_seq  += send_len;
+        tr->fake_ser.there_next_seq += ack_len;
     }
-    if(tr->here.sack_perm)
+    else
     {
-        opt[opt_len]    = __SACK_PERMITTED;
-        opt[opt_len+1]  = 2;
-        opt_len         += 2;
-    }
-    if(tr->here.win_shift)
-    {
-        opt[opt_len]    = __WSOPT;
-        opt[opt_len+1]  = 3;
-        opt[opt_len+2]  = tr->here.win_shift;
-        opt_len         += 3;
+        tr->fake_cli.here_next_seq  += send_len;
+        tr->fake_cli.there_next_seq += ack_len;
     }
 
-    // tr->here.last_tsval = _ntoh16(1457082200);
-    // opt[opt_len]    = __TSPOT;
-    // opt[opt_len+1]  = 10;
-    // memcpy(opt + opt_len + 2, &tr->here.last_tsval, 4);
-    // memset(opt + opt_len + 2 + 4, 0, 4);
-    // opt_len +=10;
-
-    opt_len += 3;
-    opt_len /= 4;
-
-    return opt_len*4;
-}
-
-
-
-unsigned int
-tcp_syn_handler(struct tcp_recorder *tr, void *pi)
-{
-    if(!tr || !pi) return false;
-
-    struct _iphdr   *ip     = get_ip_hdr(pi);
-    struct _tcphdr  *tcp    = get_tcp_hdr(pi);
-
-    if(!ip || !tcp) return false;
-
-    if( false == save_there_tcp_state(tr, pi) ) return false;
-
-    if( false ==
-        init_here_tcp_state(tr, ip->daddr, tcp->dest, _ntoh32(tcp->seq)) )
-        return false;
-
-    unsigned char   opt[40] = {0};
-    unsigned int    len     = make_my_tcp_syn_opt(tr, opt, 40);
-
-    send_tcp_pkt(tr, 1, 1, __syn___|__ack___, 0, 0, opt, len);
-
-    return true;
+    return ret;
 }
 
 
 unsigned int
-send_multi_tcp_pkt( struct tcp_recorder *tr,
-                    unsigned char       *payload,
-                    unsigned int        pl_len)
+tr_send_multi_tcp_pkt(  struct tcp_recorder *tr,
+                        unsigned char       send_to_client,
+                        unsigned char       *payload,
+                        unsigned int        pl_len)
 {
     if(!tr || !payload || !pl_len) return 0;
 
-    unsigned int    mss     = tr->there.mss;
+    unsigned int    mss     = send_to_client ? tr->cli_mss : tr->ser_mss;
     unsigned int    count   = (pl_len + mss - 1) / mss;
     unsigned int    index   = 0;
 
@@ -534,101 +461,106 @@ send_multi_tcp_pkt( struct tcp_recorder *tr,
             flags   |= __psh___;
         }
 
-        send_tcp_pkt(tr, len, 0, flags, payload+index*mss, len, 0, 0);
+        tr_send_tcp_pkt(tr, send_to_client, len, 0,
+                        flags, payload+index*mss, len);
         index ++;
     }
+
     return index;
 }
 
 
 unsigned int
-do_tr_server_receive(struct tcp_recorder *tr, void *pi)
+tr_send_ack_to_client(  struct tcp_recorder *tr,
+                        unsigned int        ack_len)
 {
-    struct _tcphdr  *tcp    = get_tcp_hdr(pi);
-    if(!tr || !tcp) return false;
-
-    // client syn
-    if(tcp->syn && !tcp->ack)
-    {
-        return tcp_syn_handler(tr, pi);
-    }
-
-    if(tcp->fin)
-        send_tcp_pkt(tr, 1, 1, __ack___|__fin___, 0,0,0,0);
-    if(get_tcp_data_len(pi))
-        send_tcp_pkt(tr, 0, get_tcp_data_len(pi), __ack___, 0,0,0,0);
-
-
-    if(get_http_hdr_len(pi))
-    {
-        unsigned char   *p  = "HTTP/1.1 200 OK\r\nContent-Length: 1500\r\nContent-Type: text/html;charset=UTF-8\r\n\r\n<!DOCTYPE html>\r\n<html>\r\n<head>\r\n    <title>server_fuck_test</title>\r\n    </head>\r\n<body>\r\n<img src=\"http://i1.sinaimg.cn/IT/cr/2012/0618/941424605.png\">\r\n</body>\r\n</html>\r\n\r\n";
-        memcpy(tr->tmp, p, strlen(p));
-        return send_multi_tcp_pkt(tr, tr->tmp, HERE_WINDOW);
-    }
-
-    return false;
+    return tr_send_tcp_pkt(tr, true, 0, ack_len, __ack___, 0, 0);
 }
 
 
 unsigned int
-do_tr_client_receive(struct tcp_recorder *tr, void *pi)
+tr_send_fin_to_client(  struct tcp_recorder *tr,
+                        unsigned int        ack_len)
 {
-    static void *rt = 0;
+    return tr_send_tcp_pkt(tr, true, 1, ack_len, __ack___|__fin___, 0, 0);
+}
+
+
+unsigned int
+tr_send_multi_tcp_pkt_to_client(struct tcp_recorder *tr,
+                                unsigned char       *payload,
+                                unsigned int        pl_len)
+{
+    return tr_send_multi_tcp_pkt(tr, true, payload, pl_len);
+}
+
+
+void*
+tr_init_c2s(void *pi)
+{
     struct _tcphdr  *tcp    = get_tcp_hdr(pi);
-    if(!tr || !tcp) return false;
+    struct _iphdr   *ip     = get_ip_hdr(pi);
+
+    if(!tcp || !ip) return 0;
+
+    struct tcp_recorder *tr = tr_malloc();
+    if(!tr) return 0;
+
+    tr->ser_ip_ni32     = ip->daddr;
+    tr->ser_port_ni16   = tcp->dest;
+    tr->cli_ip_ni32     = ip->saddr;
+    tr->cli_port_ni16   = tcp->source;
+    tr->ser_mss         = 536;
+    tr->cli_mss         = 536;
+
+    tr->fake_cli.here_buf_start_seq     = _ntoh32(tcp->seq);
+    tr->fake_cli.here_next_seq          = tr->fake_cli.here_buf_start_seq;
+    tr->fake_cli.there_buf_start_seq    = _ntoh32(tcp->ack_seq);
+    tr->fake_cli.there_next_seq         = tr->fake_cli.there_buf_start_seq;
+
+    tr->fake_ser.here_buf_start_seq     = _ntoh32(tcp->ack_seq);
+    tr->fake_ser.here_next_seq          = tr->fake_ser.here_buf_start_seq;
+    tr->fake_ser.there_buf_start_seq    = _ntoh32(tcp->seq);
+    tr->fake_ser.there_next_seq         = tr->fake_ser.there_buf_start_seq;
+
+    return tr;
+}
 
 
-    // server syn&ack
-    if(tcp->syn && tcp->ack)
-    {
-        static int i=0;
-        if(i) return false;
-        if( false == save_there_tcp_state(tr, pi) ) return false;
-        send_tcp_pkt(tr, 0, _ntoh32(tcp->seq)+1, __ack___, 0,0,0,0);
-        unsigned char   p[1800] = "GET / HTTP/1.1\r\nHost: www.163.com\r\nPragma: no-cache\r\nCookie: adRandomCookie=1; City=010; Province=010; _ga=GA1.2.1630912293.1453532520; _ntes_nnid=0e3fe0bbaebb90b4b3ba74541b8ac652,1450511953398; _ntes_nuid=0e3fe0bbaebb90b4b3ba74541b8ac652; ne_analysis_trace_id=1457084903309; pver_n_f_l_n3=a; s_n_f_l_n3=4138ad022ecc8d721457084903531; usertrack=ZUcIhlaSYKwi9AM5ChILAg==; vinfo_n_f_l_n3=4138ad022ecc8d72.1.15.1450511953405.1457078852665.1457084954907; vjlast=1450511953.1457069170.11; vjuids=1b5790614.151b93fed10.0.94272351\r\nConnection: keep-alive\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_3) AppleWebKit/601.4.4 (KHTML, like Gecko) Version/9.0.3 Safari/601.4.4\r\nAccept-Language: zh-cn\r\nAccept-Encoding: none\r\nCache-Control: no-cache\r\n\r\n";
-        send_multi_tcp_pkt(tr, p, strlen(p));
-        i=1;
-        return true;
-    }
+unsigned int
+do_tr_fake_server_receive(struct tcp_recorder *tr, void *pi)
+{
+    // if(get_tcp_hdr(pi)->fin)
+    //     tr_send_ack_to_client(tr, 1);
+    // else
+    //     tr_send_fin_to_client(tr, get_tcp_data_len(pi));
+    tr_send_ack_to_client(tr, get_tcp_data_len(pi));
+    unsigned char   p[1800]  = "HTTP/1.1 200 OK\r\nContent-Length: 1500\r\nContent-Type: text/html;charset=UTF-8\r\n\r\n<!DOCTYPE html>\r\n<html>\r\n<head>\r\n    <title>server_fuck_test</title>\r\n    </head>\r\n<body>\r\n<img src=\"http://i1.sinaimg.cn/IT/cr/2012/0618/941424605.png\">\r\n</body>\r\n</html>\r\n\r\n";
+    tr_send_multi_tcp_pkt_to_client(tr, p, 1800);
 
-    if(tcp->fin)
-    {
-        send_tcp_pkt(tr, 0, 1, __ack___|__fin___, 0,0,0,0);
-        // send_tcp_pkt(tr, 0, 1, __ack___|__fin___, 0,0,0,0);
-        int ret = rect_read_data(rt, tr->tmp, HERE_WINDOW<<HERE_WIN_SHIFT, tr->there.start_seq+1);
-        _MESSAGE_OUT("%*s\nlen : %d\n", ret, tr->tmp, ret);
-        return true;
-    }
+    return true;
+}
 
-    if(get_tcp_data_len(pi))
-    {
-        if(tr->here.ack_seq == _ntoh32(tcp->seq))
-        {
-            send_tcp_pkt(tr, 0, get_tcp_data_len(pi), __ack___, 0,0,0,0);
-        }
-        else
-        {
-            send_tcp_pkt(tr, 0, 0, __ack___, 0,0,0,0);
-            return false;
-        }
 
-        if(!rt) rt = rect_create();
-        rect_insert(rt, pi);
-
-        return true;
-    }
-
-    return false;
+unsigned int
+do_tr_fake_client_receive(struct tcp_recorder *tr, void *pi)
+{
+    return true;
 }
 
 
 unsigned int
 do_tr_receive(struct tcp_recorder *tr, void *pi)
 {
-    if(!tr) return false;
-    return tr->here_is_server 
-                ? do_tr_server_receive(tr, pi)
-                : do_tr_client_receive(tr, pi);
+    if(!tr || !pi) return false;
+
+    struct _iphdr   *ip = get_ip_hdr(pi);
+
+    if(!ip) return false;
+
+    return (ip->daddr == tr->ser_ip_ni32)
+            ? do_tr_fake_server_receive(tr, pi)
+            : do_tr_fake_client_receive(tr, pi);
 }
 
 
@@ -637,177 +569,6 @@ tr_receive(void *tr, void *pi)
 {
     return do_tr_receive(tr, pi);
 }
-
-
-unsigned int
-do_tr_client_init(  struct tcp_recorder *tr_client,
-                    struct tcp_recorder *tr_server)
-{
-    if(!tr_client || !tr_server) return false;
-    if(!tr_server->here_is_server) return false;
-    if(tr_client->here_is_server) return false;
-
-    if(false == init_here_tcp_state(tr_client,
-                        tr_server->there.ip_ni32,
-                        tr_server->there.port_ni16,
-                        0) )
-        return false;
-
-    tr_client->there.ip_ni32    = tr_server->here.ip_ni32;
-    tr_client->there.port_ni16  = tr_server->here.port_ni16;
-
-    return true;
-}
-
-
-unsigned int
-do_tr_cli_connect_to_ser(struct tcp_recorder *tr_client)
-{
-    if(!tr_client || tr_client->here_is_server) return false;
-    if(!tr_client->there.ip_ni32 || !tr_client->there.port_ni16) return false;
-
-    unsigned char   opt[40] = {0};
-    unsigned int    len     = make_my_tcp_syn_opt(tr_client, opt, 40);
-
-    return send_tcp_pkt(tr_client, 1, 0, __syn___, 0, 0, opt, len);
-}
-
-
-unsigned int
-tr_client_init(void *tr_client, void *tr_server)
-{
-    return do_tr_client_init(tr_client, tr_server);
-}
-
-
-void*
-tr_create_mitm(void *pi)
-{
-    unsigned int    size    = sizeof(struct tr_pair);
-    struct tr_pair  *mitm   = malloc(size);
-
-    if(!mitm) goto fail_return;
-
-    memset(mitm, 0, size);
-
-    mitm->tr_server = tr_create_server();
-    mitm->tr_client = tr_create_client();
-    if(!mitm->tr_server || !mitm->tr_client) goto fail_return;
-
-    if(false == tr_receive(mitm->tr_server, pi))
-        goto fail_return;
-
-    if(false == tr_client_init(mitm->tr_client, mitm->tr_server))
-        goto fail_return;
-
-    if(false == do_tr_cli_connect_to_ser(mitm->tr_client))
-        goto fail_return;
-
-success_return:
-    return mitm;
-
-fail_return:
-    if(mitm)
-    {
-        if(mitm->tr_client)
-            tr_destory(mitm->tr_client);
-        if(mitm->tr_server)
-            tr_destory(mitm->tr_server);
-        free(mitm);
-    }
-    return 0;
-}
-
-
-unsigned int
-do_tr_receive_mitm(struct tr_pair *trp, void *pi)
-{
-    if(!trp || !trp->tr_client || !trp->tr_server) return false;
-    if(!pi) return false;
-
-    struct _iphdr   *ip = get_ip_hdr(pi);
-    if(!ip) return false;
-
-    if(ip->daddr == trp->tr_server->here.ip_ni32)
-        return tr_receive(trp->tr_server, pi);
-    else
-        return tr_receive(trp->tr_client, pi);
-}
-
-
-
-unsigned int
-tr_receive_mitm(void *trp, void *pi)
-{
-    return do_tr_receive_mitm(trp, pi);
-}
-
-
-void
-do_tr_destory_mitm(struct tr_pair *trp)
-{
-    if(trp)
-    {
-        if(trp->tr_client)
-            tr_destory(trp->tr_client);
-        if(trp->tr_server)
-            tr_destory(trp->tr_server);
-        free(trp);
-    }
-}
-
-
-void
-tr_destory_mitm(void *trp)
-{
-    do_tr_destory_mitm(trp);
-}
-
-
-void
-tr_test(void *pi)
-{
-    if(!get_tcp_hdr(pi)) return;
-    static struct tcp_recorder *cli = 0;
-
-#define TEST_TARGET         "124.202.166.57"
-    static test_port    = 0;
-    if(!test_port)
-    {
-        srand(time(0));
-        test_port = rand()%6000+20000;
-    }
-    if(!cli)
-    {
-        // if(get_ip_hdr(pi)->daddr != _iptonetint32("99.99.99.99")) return;
-        cli = tr_create_client();
-
-        if(false == init_here_tcp_state(cli,
-                    _iptonetint32("192.168.1.114"),
-                    _ntoh16(test_port),
-                    0) )
-            return;
-
-        cli->there.ip_ni32    = _iptonetint32(TEST_TARGET);
-        cli->there.port_ni16  = _ntoh16(80);
-        do_tr_cli_connect_to_ser(cli);
-
-        // _MESSAGE_OUT("send .......................\n");
-    }
-
-    if(get_ip_hdr(pi)->saddr != _iptonetint32(TEST_TARGET))
-        return ;
-    if(get_tcp_hdr(pi)->dest != _ntoh16(test_port))
-        return;
-    // _MESSAGE_OUT("in.....\n");
-
-    do_tr_client_receive(cli, pi);
-}
-
-
-
-
-
 
 
 
