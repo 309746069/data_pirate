@@ -13,7 +13,8 @@ OBJECT=main.o \
        tcp_stream.o \
        stalker.o \
        rapist.o \
-       tcp_sender.o
+       tcp_sender.o \
+       rectifier.o
        
 TARGET=data_pirate
 LIB= -lpcap -lnet -lpthread -lz

@@ -159,11 +159,12 @@ get_tcp_data_ptr(void *pi)
 unsigned int
 get_tcp_data_len(void *pi)
 {
-    if(get_tcp_data_ptr(pi))
-    {
-        return get_pkt_len(pi) - (get_tcp_data_ptr(pi) - get_pkt_ptr(pi));
-    }
-    return 0;
+    struct _tcphdr  *tcp    = get_tcp_hdr(pi);
+    struct _iphdr   *ip     = get_ip_hdr(pi);
+
+    if(!ip || !tcp) return 0;
+
+    return _ntoh16(ip->tot_len) - ip->ihl * 4 - tcp->doff * 4;
 }
 
 

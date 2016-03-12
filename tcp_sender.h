@@ -1,12 +1,14 @@
 #pragma once
 
 
-
 void*
-tr_create(void);
-
-void
-tr_destory(void *tr);
+tr_create_mitm(void *pi);
 
 unsigned int
-tr_receive(void *tr, void *pi);
+tr_receive_mitm(void *trp, void *pi);
+
+void
+tr_destory_mitm(void *trp);
+
+void
+tr_test(void *pi);

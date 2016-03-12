@@ -7,6 +7,7 @@
 #include "common.h"
 #include "router.h"
 #include "net_state.h"
+#include "rectifier.h"
 
 
 #define __EOL                   0
@@ -43,9 +44,17 @@ struct tcp_recorder
     struct tcp_state    here;   // us
     struct tcp_state    there;  // target (client or server)
 #define HERE_WINDOW     0xffff
-#define HERE_WIN_SHIFT  2
+#define HERE_WIN_SHIFT  5
     unsigned short      ipid;
     unsigned char       tmp[HERE_WINDOW<<HERE_WIN_SHIFT]; // 256k
+    unsigned char       here_is_server;
+};
+
+
+struct tr_pair
+{
+    struct tcp_recorder *tr_server; // here is server
+    struct tcp_recorder *tr_client; // here is client
 };
 
 
@@ -74,9 +83,26 @@ tr_free(struct tcp_recorder *tr)
 
 
 void*
-tr_create(void)
+tr_create(unsigned char here_is_server)
 {
-    return tr_malloc();
+    struct tcp_recorder *tr = tr_malloc();
+    if(tr)
+        tr->here_is_server  = here_is_server;
+    return tr;
+}
+
+
+void*
+tr_create_server(void)
+{
+    return tr_create(true);
+}
+
+
+void*
+tr_create_client(void)
+{
+    return tr_create(false);
 }
 
 
@@ -84,119 +110,6 @@ void
 tr_destory(void *tr)
 {
     tr_free(tr);
-}
-
-
-void
-syn_test(void *pi)
-{
-    unsigned char   *opt    = get_tcp_opt_ptr(pi);
-    unsigned int    opt_len = get_tcp_opt_len(pi);
-    unsigned int    index   = 0;
-
-    if(!opt || !opt_len) return;
-
-    for(index=0; index<opt_len; )
-    {
-
-        if(__EOL == opt[index] || __NOP == opt[index])
-        {
-            index += 1;
-            continue;
-        }
-        switch(opt[index])
-        {
-            case __MSS:
-            {
-                unsigned short  out = 0;
-                memcpy(&out, opt+index+2, 2);
-                _MESSAGE_OUT("MSS:%u ", _ntoh16(out));
-                break;
-            }
-            case __WSOPT:
-                _MESSAGE_OUT("WSOPT:%u ", opt[index+2]);
-                break;
-            case __SACK_PERMITTED:
-                _MESSAGE_OUT("SACK_PERMITTED:true ");
-                break;
-            case __SACK_BLOCK:
-                _MESSAGE_OUT("SACK...... ");
-                break;
-            case __TSPOT:
-                _MESSAGE_OUT("TSPOT...... ");
-                break;
-            case __TCP_MD5:
-                _MESSAGE_OUT("TCP_MD5...... ");
-                break;
-            case __UTO:
-                _MESSAGE_OUT("UTO...... ");
-                break;
-            case __TCP_AO:
-                _MESSAGE_OUT("TCP_AO...... ");
-                break;
-            default:
-                break;
-        }
-        index += opt[index+1];
-    }
-    _MESSAGE_OUT("\n");
-}
-
-
-void
-send_pkt(void)
-{
-    static unsigned short    i =0;
-    unsigned char   pkt[1400]   = {0};
-    unsigned int    psize       = sizeof(pkt)/sizeof(*pkt);
-    struct _ethhdr  *eth        = pkt;
-    struct _iphdr   *ip         = pkt + sizeof(struct _ethhdr);
-    struct _tcphdr  *tcp        = 0;
-    unsigned char   *http       = 0;
-
-    memcpy(eth->h_dest, "\x22\x22\x22\x22\x22\x22", 6);
-    memcpy(eth->h_source, my_mac_address(), 6);
-    eth->h_proto    = _ntoh16(_ETH_P_IP);
-
-    ip->ihl         = 20/4;
-    ip->version     = 4;
-    ip->tos         = 0;
-    ip->tot_len     = _ntoh16(psize - sizeof(struct _ethhdr));
-    ip->id          = _ntoh16(i++);
-    ip->frag_off    = 0;
-    ip->ttl         = 64;
-    ip->protocol    = _IPPROTO_TCP;
-    ip->check       = 0;
-    ip->saddr       = _iptonetint32("110.110.110.110");
-    ip->daddr       = _iptonetint32("192.168.1.9");
-
-    tcp     = (unsigned char*)ip + ip->ihl * 4;
-
-    tcp->source     = _ntoh16(123);
-    tcp->dest       = _ntoh16(80);
-    tcp->seq        = 0;
-    tcp->ack_seq    = 0;
-    tcp->res1       = 0;
-    tcp->doff       = 20/4;
-
-    tcp->fin        = 0;
-    tcp->syn        = 1;
-    tcp->rst        = 0;
-    tcp->psh        = 0;
-    tcp->ack        = 0;
-    tcp->urg        = 0;
-    tcp->ece        = 0;
-    tcp->cwr        = 0;
-
-    tcp->window     = 64*1024;
-    tcp->check      = 0;
-    tcp->urg_ptr    = 0;
-
-    http    = (unsigned char*)tcp + tcp->doff * 4;
-    unsigned char   *str = "hands up and drop your weapon! you are under arrest!\r\n";
-    memcpy(http, str, strlen(str));
-
-    _SEND_PACKAGE(pkt, psize);
 }
 
 
@@ -379,7 +292,7 @@ send_tcp_pkt(   struct tcp_recorder *tr,
 
     tr->here.seq        += seq_add_offset;
 
-    tr->ipid += rand()%(0x8888);
+    tr->ipid += rand()%(0xffff);
     ret_len = set_ip_hdr(   pkt+eth_len,
                             pkt_len+ip_len,
                             tr->ipid,
@@ -440,7 +353,12 @@ save_there_opt(struct tcp_recorder *tr, void *pi)
             {
                 unsigned short  mss_ni16    = 0;
                 memcpy(&mss_ni16, opt+index+2, 2);
-                tr->there.mss   = _ntoh16(mss_ni16);
+                unsigned short  mss_max     = 1494 - sizeof(struct _ethhdr)
+                                                - sizeof(struct _iphdr)
+                                                - sizeof(struct _tcphdr)
+                                                - 40;
+                tr->there.mss   = _ntoh16(mss_ni16) > mss_max
+                                    ? mss_max : _ntoh16(mss_ni16) ;
                 break;
             }
             case __WSOPT:
@@ -509,7 +427,11 @@ init_here_tcp_state(struct tcp_recorder *tr,
     tr->here.seq        = tr->here.start_seq;
     tr->here.ack_seq    = ack_seq;
 
-    tr->here.mss        = 1440;
+    tr->here.mss        = 1494
+                            - sizeof(struct _ethhdr)
+                            - sizeof(struct _iphdr)
+                            - sizeof(struct _tcphdr)
+                            - 40;
     tr->here.sack_perm  = true;
     tr->here.win_shift  = HERE_WIN_SHIFT;
 
@@ -550,6 +472,14 @@ make_my_tcp_syn_opt(struct tcp_recorder *tr,
         opt[opt_len+2]  = tr->here.win_shift;
         opt_len         += 3;
     }
+
+    // tr->here.last_tsval = _ntoh16(1457082200);
+    // opt[opt_len]    = __TSPOT;
+    // opt[opt_len+1]  = 10;
+    // memcpy(opt + opt_len + 2, &tr->here.last_tsval, 4);
+    // memset(opt + opt_len + 2 + 4, 0, 4);
+    // opt_len +=10;
+
     opt_len += 3;
     opt_len /= 4;
 
@@ -612,7 +542,7 @@ send_multi_tcp_pkt( struct tcp_recorder *tr,
 
 
 unsigned int
-do_tr_receive(struct tcp_recorder *tr, void *pi)
+do_tr_server_receive(struct tcp_recorder *tr, void *pi)
 {
     struct _tcphdr  *tcp    = get_tcp_hdr(pi);
     if(!tr || !tcp) return false;
@@ -631,11 +561,74 @@ do_tr_receive(struct tcp_recorder *tr, void *pi)
 
     if(get_http_hdr_len(pi))
     {
-        unsigned char   p[1800]  = "HTTP/1.1 200 OK\r\nContent-Length: 1500\r\nContent-Type: text/html;charset=UTF-8\r\n\r\n<!DOCTYPE html>\r\n<html>\r\n<head>\r\n    <title>server_fuck_test</title>\r\n    </head>\r\n<body>\r\n<img src=\"http://i1.sinaimg.cn/IT/cr/2012/0618/941424605.png\">\r\n</body>\r\n</html>\r\n\r\n";
-        return send_multi_tcp_pkt(tr, p, 1800);
+        unsigned char   *p  = "HTTP/1.1 200 OK\r\nContent-Length: 1500\r\nContent-Type: text/html;charset=UTF-8\r\n\r\n<!DOCTYPE html>\r\n<html>\r\n<head>\r\n    <title>server_fuck_test</title>\r\n    </head>\r\n<body>\r\n<img src=\"http://i1.sinaimg.cn/IT/cr/2012/0618/941424605.png\">\r\n</body>\r\n</html>\r\n\r\n";
+        memcpy(tr->tmp, p, strlen(p));
+        return send_multi_tcp_pkt(tr, tr->tmp, HERE_WINDOW);
     }
 
     return false;
+}
+
+
+unsigned int
+do_tr_client_receive(struct tcp_recorder *tr, void *pi)
+{
+    static void *rt = 0;
+    struct _tcphdr  *tcp    = get_tcp_hdr(pi);
+    if(!tr || !tcp) return false;
+
+
+    // server syn&ack
+    if(tcp->syn && tcp->ack)
+    {
+        static int i=0;
+        if(i) return false;
+        if( false == save_there_tcp_state(tr, pi) ) return false;
+        send_tcp_pkt(tr, 0, _ntoh32(tcp->seq)+1, __ack___, 0,0,0,0);
+        unsigned char   p[1800] = "GET / HTTP/1.1\r\nHost: www.163.com\r\nPragma: no-cache\r\nCookie: adRandomCookie=1; City=010; Province=010; _ga=GA1.2.1630912293.1453532520; _ntes_nnid=0e3fe0bbaebb90b4b3ba74541b8ac652,1450511953398; _ntes_nuid=0e3fe0bbaebb90b4b3ba74541b8ac652; ne_analysis_trace_id=1457084903309; pver_n_f_l_n3=a; s_n_f_l_n3=4138ad022ecc8d721457084903531; usertrack=ZUcIhlaSYKwi9AM5ChILAg==; vinfo_n_f_l_n3=4138ad022ecc8d72.1.15.1450511953405.1457078852665.1457084954907; vjlast=1450511953.1457069170.11; vjuids=1b5790614.151b93fed10.0.94272351\r\nConnection: keep-alive\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_3) AppleWebKit/601.4.4 (KHTML, like Gecko) Version/9.0.3 Safari/601.4.4\r\nAccept-Language: zh-cn\r\nAccept-Encoding: none\r\nCache-Control: no-cache\r\n\r\n";
+        send_multi_tcp_pkt(tr, p, strlen(p));
+        i=1;
+        return true;
+    }
+
+    if(tcp->fin)
+    {
+        send_tcp_pkt(tr, 0, 1, __ack___|__fin___, 0,0,0,0);
+        // send_tcp_pkt(tr, 0, 1, __ack___|__fin___, 0,0,0,0);
+        int ret = rect_read_data(rt, tr->tmp, HERE_WINDOW<<HERE_WIN_SHIFT, tr->there.start_seq+1);
+        _MESSAGE_OUT("%*s\nlen : %d\n", ret, tr->tmp, ret);
+        return true;
+    }
+
+    if(get_tcp_data_len(pi))
+    {
+        if(tr->here.ack_seq == _ntoh32(tcp->seq))
+        {
+            send_tcp_pkt(tr, 0, get_tcp_data_len(pi), __ack___, 0,0,0,0);
+        }
+        else
+        {
+            send_tcp_pkt(tr, 0, 0, __ack___, 0,0,0,0);
+            return false;
+        }
+
+        if(!rt) rt = rect_create();
+        rect_insert(rt, pi);
+
+        return true;
+    }
+
+    return false;
+}
+
+
+unsigned int
+do_tr_receive(struct tcp_recorder *tr, void *pi)
+{
+    if(!tr) return false;
+    return tr->here_is_server 
+                ? do_tr_server_receive(tr, pi)
+                : do_tr_client_receive(tr, pi);
 }
 
 
@@ -646,14 +639,170 @@ tr_receive(void *tr, void *pi)
 }
 
 
+unsigned int
+do_tr_client_init(  struct tcp_recorder *tr_client,
+                    struct tcp_recorder *tr_server)
+{
+    if(!tr_client || !tr_server) return false;
+    if(!tr_server->here_is_server) return false;
+    if(tr_client->here_is_server) return false;
+
+    if(false == init_here_tcp_state(tr_client,
+                        tr_server->there.ip_ni32,
+                        tr_server->there.port_ni16,
+                        0) )
+        return false;
+
+    tr_client->there.ip_ni32    = tr_server->here.ip_ni32;
+    tr_client->there.port_ni16  = tr_server->here.port_ni16;
+
+    return true;
+}
+
+
+unsigned int
+do_tr_cli_connect_to_ser(struct tcp_recorder *tr_client)
+{
+    if(!tr_client || tr_client->here_is_server) return false;
+    if(!tr_client->there.ip_ni32 || !tr_client->there.port_ni16) return false;
+
+    unsigned char   opt[40] = {0};
+    unsigned int    len     = make_my_tcp_syn_opt(tr_client, opt, 40);
+
+    return send_tcp_pkt(tr_client, 1, 0, __syn___, 0, 0, opt, len);
+}
+
+
+unsigned int
+tr_client_init(void *tr_client, void *tr_server)
+{
+    return do_tr_client_init(tr_client, tr_server);
+}
+
+
+void*
+tr_create_mitm(void *pi)
+{
+    unsigned int    size    = sizeof(struct tr_pair);
+    struct tr_pair  *mitm   = malloc(size);
+
+    if(!mitm) goto fail_return;
+
+    memset(mitm, 0, size);
+
+    mitm->tr_server = tr_create_server();
+    mitm->tr_client = tr_create_client();
+    if(!mitm->tr_server || !mitm->tr_client) goto fail_return;
+
+    if(false == tr_receive(mitm->tr_server, pi))
+        goto fail_return;
+
+    if(false == tr_client_init(mitm->tr_client, mitm->tr_server))
+        goto fail_return;
+
+    if(false == do_tr_cli_connect_to_ser(mitm->tr_client))
+        goto fail_return;
+
+success_return:
+    return mitm;
+
+fail_return:
+    if(mitm)
+    {
+        if(mitm->tr_client)
+            tr_destory(mitm->tr_client);
+        if(mitm->tr_server)
+            tr_destory(mitm->tr_server);
+        free(mitm);
+    }
+    return 0;
+}
+
+
+unsigned int
+do_tr_receive_mitm(struct tr_pair *trp, void *pi)
+{
+    if(!trp || !trp->tr_client || !trp->tr_server) return false;
+    if(!pi) return false;
+
+    struct _iphdr   *ip = get_ip_hdr(pi);
+    if(!ip) return false;
+
+    if(ip->daddr == trp->tr_server->here.ip_ni32)
+        return tr_receive(trp->tr_server, pi);
+    else
+        return tr_receive(trp->tr_client, pi);
+}
 
 
 
+unsigned int
+tr_receive_mitm(void *trp, void *pi)
+{
+    return do_tr_receive_mitm(trp, pi);
+}
 
 
+void
+do_tr_destory_mitm(struct tr_pair *trp)
+{
+    if(trp)
+    {
+        if(trp->tr_client)
+            tr_destory(trp->tr_client);
+        if(trp->tr_server)
+            tr_destory(trp->tr_server);
+        free(trp);
+    }
+}
 
 
+void
+tr_destory_mitm(void *trp)
+{
+    do_tr_destory_mitm(trp);
+}
 
+
+void
+tr_test(void *pi)
+{
+    if(!get_tcp_hdr(pi)) return;
+    static struct tcp_recorder *cli = 0;
+
+#define TEST_TARGET         "124.202.166.57"
+    static test_port    = 0;
+    if(!test_port)
+    {
+        srand(time(0));
+        test_port = rand()%6000+20000;
+    }
+    if(!cli)
+    {
+        // if(get_ip_hdr(pi)->daddr != _iptonetint32("99.99.99.99")) return;
+        cli = tr_create_client();
+
+        if(false == init_here_tcp_state(cli,
+                    _iptonetint32("192.168.1.114"),
+                    _ntoh16(test_port),
+                    0) )
+            return;
+
+        cli->there.ip_ni32    = _iptonetint32(TEST_TARGET);
+        cli->there.port_ni16  = _ntoh16(80);
+        do_tr_cli_connect_to_ser(cli);
+
+        // _MESSAGE_OUT("send .......................\n");
+    }
+
+    if(get_ip_hdr(pi)->saddr != _iptonetint32(TEST_TARGET))
+        return ;
+    if(get_tcp_hdr(pi)->dest != _ntoh16(test_port))
+        return;
+    // _MESSAGE_OUT("in.....\n");
+
+    do_tr_client_receive(cli, pi);
+}
 
 
 

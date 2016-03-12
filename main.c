@@ -19,9 +19,9 @@
     // #define TARGET_IP2      "192.168.1.127"
 #else
     #define INTERFACE       "en0"
-    #define ROUTE_IP        "192.168.0.1"
-    #define TARGET_IP       "192.168.0.104"
-    // #define TARGET_IP2      "192.168.0.1"
+    #define ROUTE_IP        "192.168.1.1"
+    #define TARGET_IP       "192.168.1.114"
+    // #define TARGET_IP2      "192.168.1.1"
 
 #endif
 

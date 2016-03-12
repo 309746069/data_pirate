@@ -85,6 +85,8 @@ uri_logout(void *pi)
 
 
 // in stalker thread ===========================================================
+
+// return false to exit this stalker thread
 unsigned int
 stalker_callback(void *si, void *pi)
 {
@@ -92,16 +94,23 @@ stalker_callback(void *si, void *pi)
     // uri_logout(pi);
 #define IP99999999_TEST
 #ifdef IP99999999_TEST
-    if(_iptonetint32("99.99.99.99") == get_ip_hdr(pi)->daddr)
+    if(_iptonetint32("192.168.0.1") == get_ip_hdr(pi)->daddr)
     {
-        void *tr    = stalker_get_exptr(si);
-        if(!tr)
+        void    *trp    = stalker_get_exptr(si);
+        if(!trp)
         {
-            tr= tr_create();
-            stalker_set_exptr(si, tr);
+            trp  = tr_create_mitm(pi);
+            stalker_set_exptr(si, trp);
+            return true;
         }
-        tr_receive(tr, pi);
+        tr_receive_mitm(trp, pi);
         http_hdr_logout(pi);
+        return true;
+    }
+    if(_iptonetint32("192.168.0.1") == get_ip_hdr(pi)->saddr)
+    {
+        void    *trp    = stalker_get_exptr(si);
+        tr_receive_mitm(trp, pi);
         return true;
     }
 #endif
@@ -151,7 +160,8 @@ unsigned int
 i_wanna_fuck_this_beauty(void *pi)
 {
 #ifdef IP99999999_TEST
-    return _iptonetint32("99.99.99.99") == get_ip_hdr(pi)->daddr;
+    return _iptonetint32("192.168.0.1") == get_ip_hdr(pi)->daddr 
+            || _iptonetint32("192.168.0.1") == get_ip_hdr(pi)->saddr;
 #endif
 
     struct _tcphdr  *tcp    = get_tcp_hdr(pi);

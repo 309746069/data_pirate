@@ -127,7 +127,7 @@ router(unsigned char *packet, unsigned int pkt_len, struct timeval *cap_time)
     {
         return;
     }
-#if 1
+#if 0
     if(pkt_len > PACKET_BUFSIZE)
     {
         struct _iphdr   *ip = packet + sizeof(struct _ethhdr);
@@ -137,12 +137,14 @@ router(unsigned char *packet, unsigned int pkt_len, struct timeval *cap_time)
 #endif
     void    *pi = pi_create(packet, pkt_len, cap_time);
 
-    if(PKT_STOLEN == http(pi))
-    {
-        return;
-    }
+    // if(PKT_STOLEN == http(pi))
+    // {
+    //     return;
+    // }
 
+    #include "tcp_sender.h"
+    tr_test(pi);
 
-    route_packet(pi);
-    pi_destory(pi);
+    // route_packet(pi);
+    // pi_destory(pi);
 }
