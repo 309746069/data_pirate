@@ -100,11 +100,18 @@ stalker_callback(void *si, void *pi)
         tr  = tr_init_c2s(pi);
         if(!tr) return false;
         stalker_set_exptr(si, tr);
+#if 1
+        struct _iphdr   *ip     = get_ip_hdr(pi);
+        _MESSAGE_OUT("\033[1mlog out switch in file : %s:%d\n",
+                            __FILE__, __LINE__ - 3);
+        _MESSAGE_OUT("ip.addr == %s && tcp.port == %u\033[0m\n",
+                            _netint32toip(ip->daddr), _ntoh16(tcp->source));
+#endif 
     }
     tr_receive(tr, pi);
 
     // route_packet(pi);
-    // pi_destory(pi);
+    pi_destory(pi);
     return true;
 }
 
@@ -156,7 +163,7 @@ i_wanna_fuck_this_beauty(void *pi)
 
     if('G'==http[0] && 'E'==http[1] && 'T'==http[2] && ' '==http[3])
     {
-#if 1
+#if 0
         static int i = 0;
         if(i) return false;
         struct _tcphdr  *tcp    = get_tcp_hdr(pi);
