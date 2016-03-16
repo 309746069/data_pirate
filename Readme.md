@@ -12,7 +12,7 @@ email: erriy@msn.com
 
 ## 攻击靶机效果图
 
-![bthave.net](bthave.png)
+![bthave.net](bthave.PNG)
 ![bthave.net_html](bthave_html.jpeg)
 
 ## 已实现的与没实现的
